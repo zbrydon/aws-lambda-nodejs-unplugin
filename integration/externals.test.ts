@@ -13,11 +13,11 @@ import { SUPPORTED_BUNDLERS } from '../src/types.ts';
  * bundle and installed separately in the Lambda output directory.
  *
  * For each bundler we:
- *   1. Bundle `handler-with-dep.ts` (which imports `unplugin`) with
- *      `nodeModules: ['unplugin']`.
- *   2. Assert that `unplugin` is referenced externally in the bundle (i.e. a
- *      `require("unplugin")` call, not inlined code).
- *   3. Assert that `unplugin` was installed into `node_modules` in the output
+ *   1. Bundle `handler-with-dep.ts` (which imports `zod`) with
+ *      `nodeModules: ['zod']`.
+ *   2. Assert that `zod` is referenced externally in the bundle (i.e. a
+ *      `require("zod")` call, not inlined code).
+ *   3. Assert that `zod` was installed into `node_modules` in the output
  *      directory by the CDK bundling step.
  *   4. Load the bundle and invoke the handler to confirm the external module
  *      resolves correctly at runtime.
@@ -35,7 +35,7 @@ it.each(SUPPORTED_BUNDLERS)(
         architecture: aws_lambda.Architecture.ARM_64,
         depsLockFilePath: path.resolve('pnpm-lock.yaml'),
         projectRoot: path.resolve('.'),
-        nodeModules: ['unplugin'],
+        nodeModules: ['zod'],
       });
 
       expect(
@@ -47,15 +47,15 @@ it.each(SUPPORTED_BUNDLERS)(
 
       const bundleContent = fs.readFileSync(indexPath, 'utf-8');
 
-      // unplugin should appear as an external require, not be inlined.
-      expect(bundleContent, 'expected unplugin to be an external require').toMatch(
-        /require\(["']unplugin["']\)/,
+      // zod should appear as an external require, not be inlined.
+      expect(bundleContent, 'expected zod to be an external require').toMatch(
+        /require\(["']zod["']\)/,
       );
 
-      // CDK should have installed unplugin into node_modules in the output dir.
+      // CDK should have installed zod into node_modules in the output dir.
       expect(
-        fs.existsSync(path.join(outputDir, 'node_modules', 'unplugin')),
-        `unplugin not found in ${outputDir}/node_modules`,
+        fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
+        `zod not found in ${outputDir}/node_modules`,
       ).toBe(true);
 
       // The handler should resolve the external module from the output node_modules
@@ -66,10 +66,10 @@ it.each(SUPPORTED_BUNDLERS)(
 
       const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({
         bundler,
-      })) as { bundlerKeys: string[] };
+      })) as { zodExports: string[] };
 
-      // createUnplugin returns adapters for each supported bundler framework.
-      expect(result.bundlerKeys).toContain('rollup');
+      // z is a named export of zod — confirms the external module resolved correctly.
+      expect(result.zodExports).toContain('z');
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
