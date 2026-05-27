@@ -24,7 +24,6 @@ export default defineConfig({
         'src/testing',
         'integration',
         'knip.config.ts',
-        'scripts/profile.ts',
       ],
       thresholds: {
         branches: 100,

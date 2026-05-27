@@ -47,7 +47,6 @@
     "format": "oxfmt",
     "knip": "knip",
     "lint": "oxlint --type-aware --type-check",
-    "profile": "0x -- node --experimental-transform-types scripts/profile.ts",
     "release": "pnpm build && changeset publish",
     "test": "vitest run --project unit",
     "test:ci": "vitest run --coverage",
@@ -55,7 +54,6 @@
     "test:watch": "vitest --project unit"
   },
   "devDependencies": {
-    "0x": "6.0.0",
     "@arethetypeswrong/core": "0.18.1",
     "@changesets/cli": "2.31.0",
     "@farmfe/core": "1.7.11",
