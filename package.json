@@ -1,0 +1,123 @@
+{
+  "name": "aws-lambda-nodejs-unplugin",
+  "version": "0.0.0",
+  "description": "Drop-in NodejsFunction powered by any bundler via unplugin",
+  "homepage": "https://github.com/zbrydon/aws-lambda-nodejs-unplugin#readme",
+  "bugs": {
+    "url": "https://github.com/zbrydon/aws-lambda-nodejs-unplugin/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/zbrydon/aws-lambda-nodejs-unplugin.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "imports": {
+    "#src/*": {
+      "@seek/aws-lambda-nodejs-unplugin/source": "./src/*",
+      "default": "./lib/*"
+    }
+  },
+  "exports": {
+    ".": {
+      "@seek/aws-lambda-nodejs-unplugin/source": "./src/index.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.mjs",
+        "require": "./dist/index.cjs"
+      },
+      "./package.json": "./package.json"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "format": "oxfmt",
+    "lint": "oxlint --type-aware --type-check",
+    "release": "pnpm build && changeset publish",
+    "test": "vitest run --project unit",
+    "test:ci": "vitest run --coverage",
+    "test:int": "vitest run --project integration",
+    "test:watch": "vitest --project unit"
+  },
+  "devDependencies": {
+    "0x": "6.0.0",
+    "@arethetypeswrong/core": "0.18.1",
+    "@changesets/cli": "2.31.0",
+    "@farmfe/cli": "^1.0.5",
+    "@farmfe/core": "1.7.11",
+    "@rspack/cli": "2.0.4",
+    "@rspack/core": "2.0.4",
+    "@skuba-lib/changesets-changelog": "1.0.1",
+    "@types/node": "24.10.2",
+    "@vitest/coverage-v8": "4.1.7",
+    "aws-cdk-lib": "2.256.1",
+    "constructs": "10.6.0",
+    "esbuild": "0.28.0",
+    "knip": "6.14.2",
+    "oxfmt": "0.51.0",
+    "oxlint": "1.66.0",
+    "oxlint-tsgolint": "0.23.0",
+    "publint": "0.3.17",
+    "rolldown": "^1.0.2",
+    "rollup": "4.60.4",
+    "tsconfig-seek": "2.0.0",
+    "tsdown": "0.22.0",
+    "typescript": "6.0.3",
+    "unplugin": "^3.0.0",
+    "vite": "8.0.14",
+    "vitest": "4.1.7",
+    "webpack": "5.107.0",
+    "webpack-cli": "7.0.2",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "aws-cdk-lib": ">=2.130.0",
+    "constructs": "^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@farmfe/core": {
+      "optional": true
+    },
+    "@rspack/core": {
+      "optional": true
+    },
+    "esbuild": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    },
+    "rollup": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
+      "optional": true
+    }
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.2.2",
+      "onFail": "error"
+    }
+  },
+  "engines": {
+    "node": ">=24.14.0"
+  }
+}

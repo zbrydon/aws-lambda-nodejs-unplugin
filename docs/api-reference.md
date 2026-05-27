@@ -1,0 +1,194 @@
+# API reference
+
+## `NodejsFunction`
+
+```ts
+import { NodejsFunction } from 'aws-lambda-nodejs-unplugin';
+```
+
+Extends `lambda.Function`. Drop-in replacement for `aws_lambda_nodejs.NodejsFunction`.
+
+### Constructor
+
+```ts
+new NodejsFunction(scope: Construct, id: string, props: NodejsFunctionProps)
+```
+
+Throws `ValidationError` if:
+
+- `runtime` is not a NODEJS family runtime.
+- `entry` points to a file that does not exist or has an unsupported extension.
+- `depsLockFilePath` points to a path that does not exist or is not a file.
+- Multiple lock files are found during auto-detection (see `depsLockFilePath` below).
+- No lock file can be found at all.
+- The auto-detected entry file (from the construct id) cannot be found.
+
+---
+
+### `NodejsFunctionProps`
+
+All props from [`lambda.FunctionOptions`](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_lambda.FunctionOptions.html) are accepted unchanged. The following props are added or modified:
+
+#### `bundling` (required)
+
+```ts
+bundling: BundlingOptions;
+```
+
+Bundling configuration. See [`BundlingOptions`](#bundlingoptions).
+
+#### `entry`
+
+```ts
+entry?: string
+```
+
+Path to the handler entry file. Accepts `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
+
+Relative paths are resolved from the current working directory (`process.cwd()`).
+
+When omitted, the entry is derived automatically:
+
+1. The file that contains the `new NodejsFunction(...)` call is identified via the V8 call-stack API.
+2. The construct `id` is used as the filename stem.
+3. Extensions are tried in order: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
+
+Example -- if `appStack.ts` calls `new NodejsFunction(this, 'worker', ...)`, the auto-detected entry is `appStack.worker.ts` (in the same directory).
+
+#### `handler`
+
+```ts
+handler?: string  // default: 'handler'
+```
+
+Name of the exported handler function.
+
+- A bare name (no dot) is prefixed with `index.`: `handler` becomes `index.handler`.
+- A dotted name is used as-is: `myFile.myFunction` stays `myFile.myFunction`.
+
+#### `runtime`
+
+```ts
+runtime?: lambda.Runtime  // default: lambda.Runtime.NODEJS_LATEST
+```
+
+Lambda runtime. Must be a NODEJS family runtime (`lambda.RuntimeFamily.NODEJS`).
+
+#### `depsLockFilePath`
+
+```ts
+depsLockFilePath?: string
+```
+
+Absolute or relative path to the package manager lock file.
+
+When omitted, the lock file is found by walking up parent directories from the current working directory. Lock files are searched in this order of preference: `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `package-lock.json`. If multiple lock files are found at the same directory level a `ValidationError` is thrown.
+
+#### `projectRoot`
+
+```ts
+projectRoot?: string
+```
+
+Root directory of the project. Must contain the lock file. Defaults to the parent directory of `depsLockFilePath`.
+
+---
+
+## `BundlingOptions`
+
+```ts
+import type { BundlingOptions } from 'aws-lambda-nodejs-unplugin';
+```
+
+#### `bundler` (required)
+
+```ts
+bundler: SupportedBundler;
+```
+
+Which bundler to use. One of: `'esbuild'`, `'vite'`, `'rollup'`, `'rolldown'`, `'webpack'`, `'rspack'`, `'farm'`.
+
+#### `bundlerConfig` (required)
+
+```ts
+bundlerConfig: string;
+```
+
+Path to the bundler config file. Absolute or relative to the project root.
+
+The file must export a default configuration object for the chosen bundler. The CDK bundling driver imports this object, merges in the CDK-controlled entry point and output directory, and calls the bundler's JavaScript API.
+
+The config does **not** need to read environment variables or import `createLambdaUnplugin`. See [Bundler configs](bundlers.md) for per-bundler examples.
+
+#### `nodeModules`
+
+```ts
+nodeModules?: string[]
+```
+
+npm packages to install into the Lambda asset directory rather than embed in the bundle. These are useful for packages with native binaries or packages you want to keep separate.
+
+After bundling, the driver:
+
+1. Resolves each package's version from your `package.json` (falling through to the installed `package.json` for transitive deps).
+2. Writes a minimal `package.json` with those pinned versions into the output directory.
+3. Copies workspace config files and the lock file.
+4. Runs the detected package manager's install command.
+
+See [Advanced usage -- nodeModules](advanced.md#nodemodules).
+
+#### `commandHooks`
+
+```ts
+commandHooks?: ICommandHooks
+```
+
+Shell commands to run at various points in the bundling pipeline. See [`ICommandHooks`](#icommandhooks).
+
+#### `assetHash`
+
+```ts
+assetHash?: string
+```
+
+Custom asset hash string. When set, CDK uses `AssetHashType.CUSTOM` with this value instead of computing a hash from the bundled output. Useful for deterministic deployments when you want to control when the Lambda asset is considered changed.
+
+---
+
+## `ICommandHooks`
+
+```ts
+import type { ICommandHooks } from 'aws-lambda-nodejs-unplugin';
+```
+
+```ts
+interface ICommandHooks {
+  beforeBundling(inputDir: string, outputDir: string): string[];
+  afterBundling(inputDir: string, outputDir: string): string[];
+  beforeInstall(inputDir: string, outputDir: string): string[];
+}
+```
+
+Each method receives:
+
+- `inputDir`: the project root directory.
+- `outputDir`: the CDK asset staging directory where bundled output will be written.
+
+Return an array of shell commands (bash strings). An empty array skips the hook. Commands run in order.
+
+`beforeInstall` only runs when `nodeModules` is non-empty.
+
+---
+
+## `SupportedBundler`
+
+```ts
+import type { SupportedBundler } from 'aws-lambda-nodejs-unplugin';
+import { SUPPORTED_BUNDLERS } from 'aws-lambda-nodejs-unplugin';
+```
+
+```ts
+type SupportedBundler = 'esbuild' | 'vite' | 'rollup' | 'rolldown' | 'webpack' | 'rspack' | 'farm';
+
+const SUPPORTED_BUNDLERS: SupportedBundler[];
+```

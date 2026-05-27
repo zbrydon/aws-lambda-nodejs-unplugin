@@ -1,0 +1,17 @@
+allowBuilds:
+  '@ast-grep/lang-json': set this to true or false
+  '@ast-grep/lang-yaml': set this to true or false
+  core-js: true
+  esbuild: true
+  unrs-resolver: set this to true or false
+
+blockExoticSubdeps: true
+ignorePatchFailures: false
+minimumReleaseAge: 4320
+strictDepBuilds: true
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - semver@6.3.1
+  - ua-parser-js@1.0.41
+overrides:
+  fflate: 0.8.2
