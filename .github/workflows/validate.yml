@@ -2,14 +2,18 @@ name: Validate
 
 on:
   - pull_request
-  - push
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
 
 permissions: {}
 
 jobs:
   validate:
     name: Lint & Test
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
+    if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
     permissions:
       checks: write
     runs-on: ubuntu-latest
