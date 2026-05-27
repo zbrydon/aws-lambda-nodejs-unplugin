@@ -19,12 +19,12 @@ export default defineConfig({
         '**/tmp/**',
         '**/vitest.*.ts',
         '**/tsdown.config.*ts',
-        // Barrel re-export — no executable logic to measure.
         'src/index.ts',
-        // Interface-only file — compiles to no runtime statements.
         'src/bundlers/types.ts',
         'src/testing',
         'integration',
+        'knip.config.ts',
+        'scripts/profile.ts',
       ],
       thresholds: {
         branches: 100,
