@@ -4,7 +4,7 @@ allowBuilds:
   core-js: true
   esbuild: true
   unrs-resolver: set this to true or false
-
+pmOnFail: error
 blockExoticSubdeps: true
 ignorePatchFailures: false
 minimumReleaseAge: 4320
