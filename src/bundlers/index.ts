@@ -18,6 +18,4 @@ const REGISTRY: Record<SupportedBundler, BundlerAdapter> = {
   webpack: webpackAdapter,
 };
 
-export function getBundler(name: SupportedBundler): BundlerAdapter {
-  return REGISTRY[name];
-}
+export const getBundler = (name: SupportedBundler): BundlerAdapter => REGISTRY[name];

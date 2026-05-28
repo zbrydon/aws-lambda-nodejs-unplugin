@@ -356,4 +356,308 @@ describe('copyWorkspaceFiles', () => {
     // No files in srcDir; destDir remains empty
     expect(fs.readdirSync(destDir)).toHaveLength(0);
   });
+
+  it('strips patchedDependencies entries for packages not in nodeModules', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "@changesets/cli@2.31.0": patches/@changesets__cli@2.31.0.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+    fs.mkdirSync(path.join(srcDir, 'patches'));
+    fs.writeFileSync(path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'), 'diff');
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(
+        JSON.stringify({
+          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
+        }),
+      ),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).not.toContain('patchedDependencies');
+    expect(fs.existsSync(path.join(destDir, 'patches'))).toBe(false);
+  });
+
+  it('ignores packages not in nodeModules even when yaml has non-standard content', () => {
+    // pnpm config get parses the YAML itself; only valid entries appear in its output
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  not-a-valid-entry',
+      '  "@changesets/cli@2.31.0": patches/@changesets__cli@2.31.0.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(
+        JSON.stringify({
+          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
+        }),
+      ),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    // @changesets/cli is not in nodeModules=['zod']
+    expect(written).not.toContain('patchedDependencies');
+  });
+
+  it('skips copying a patch file that does not exist on disk', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+    // Intentionally do NOT create the patch file in srcDir
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(
+        JSON.stringify({ 'zod@3.22.4': path.join(srcDir, 'patches/zod@3.22.4.patch') }),
+      ),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).toContain('zod@3.22.4');
+    // Patch file doesn't exist in src, so it should not appear in dest either
+    expect(fs.existsSync(path.join(destDir, 'patches/zod@3.22.4.patch'))).toBe(false);
+  });
+
+  it('returns original content when pnpm config get fails', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 1,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(''),
+      stderr: Buffer.from('error'),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).toBe(workspaceContent);
+  });
+
+  it('strips patchedDependencies when pnpm config get returns non-object JSON', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from('null'),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).not.toContain('patchedDependencies');
+  });
+
+  it('returns original content when pnpm config get output is not valid JSON', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from('not valid json {{{'),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).toBe(workspaceContent);
+  });
+
+  it('skips patch entries whose value is not a string', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(JSON.stringify({ 'zod@3.22.4': 42 })),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).not.toContain('patchedDependencies');
+  });
+
+  it('preserves patchedDependencies entries for packages in nodeModules and copies their patch files', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+      '  "@changesets/cli@2.31.0": patches/@changesets__cli@2.31.0.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+    fs.mkdirSync(path.join(srcDir, 'patches'));
+    fs.writeFileSync(path.join(srcDir, 'patches/zod@3.22.4.patch'), 'diff --zod');
+    fs.writeFileSync(path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'), 'diff --cs');
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(
+        JSON.stringify({
+          'zod@3.22.4': path.join(srcDir, 'patches/zod@3.22.4.patch'),
+          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
+        }),
+      ),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const pnpmInfo = {
+      name: 'pnpm' as const,
+      version: undefined,
+      useCorepack: false,
+      lockFile: LockFile.PNPM,
+      installCommand: ['pnpm', 'install'] as [string, ...string[]],
+      workspaceFiles: WORKSPACE_FILES.pnpm,
+      packageManagerField: undefined,
+    };
+
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+
+    const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
+    expect(written).toContain('patchedDependencies');
+    expect(written).toContain('zod@3.22.4');
+    expect(written).not.toContain('@changesets/cli@2.31.0');
+    expect(fs.existsSync(path.join(destDir, 'patches/zod@3.22.4.patch'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'patches/@changesets__cli@2.31.0.patch'))).toBe(false);
+  });
 });

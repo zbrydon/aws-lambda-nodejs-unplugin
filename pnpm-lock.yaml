@@ -204,7 +204,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  fflate: 0.8.2
+  '@arethetypeswrong/core@0.18.1>fflate': 0.8.2
+
+patchedDependencies:
+  '@changesets/cli@2.31.0': d33ce3d167a9da36634f25aede1f601abe60b3e4977b80cb7bc4f2fd369f6c7d
 
 importers:
 
@@ -215,7 +218,7 @@ importers:
         version: 0.18.1
       '@changesets/cli':
         specifier: 2.31.0
-        version: 2.31.0(@types/node@24.10.2)
+        version: 2.31.0(patch_hash=d33ce3d167a9da36634f25aede1f601abe60b3e4977b80cb7bc4f2fd369f6c7d)(@types/node@24.10.2)
       '@farmfe/core':
         specifier: 1.7.11
         version: 1.7.11(@types/node@24.10.2)
@@ -3451,7 +3454,7 @@ snapshots:
     dependencies:
       '@changesets/types': 6.1.0
 
-  '@changesets/cli@2.31.0(@types/node@24.10.2)':
+  '@changesets/cli@2.31.0(patch_hash=d33ce3d167a9da36634f25aede1f601abe60b3e4977b80cb7bc4f2fd369f6c7d)(@types/node@24.10.2)':
     dependencies:
       '@changesets/apply-release-plan': 7.1.1
       '@changesets/assemble-release-plan': 6.0.10
@@ -4849,7 +4852,7 @@ snapshots:
 
   farm-plugin-replace-dirname@0.2.1(@types/node@24.10.2):
     dependencies:
-      '@changesets/cli': 2.31.0(@types/node@24.10.2)
+      '@changesets/cli': 2.31.0(patch_hash=d33ce3d167a9da36634f25aede1f601abe60b3e4977b80cb7bc4f2fd369f6c7d)(@types/node@24.10.2)
       '@farmfe/utils': 0.0.1
       cac: 6.7.14
     optionalDependencies:

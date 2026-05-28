@@ -31,7 +31,7 @@ const LOCK_FILE_PM: [string, PackageManagerName][] = [
 
 /** Workspace-config files to copy from the source repo into the asset output dir. */
 export const WORKSPACE_FILES: Record<PackageManagerName, string[]> = {
-  pnpm: ['pnpm-workspace.yaml', '.npmrc', '.pnpmfile.cjs'],
+  pnpm: ['pnpm-workspace.yaml', '.npmrc', '.pnpmfile.cjs', '.pnpmfile.mjs'],
   yarn: ['.yarnrc.yml', '.npmrc'],
   npm: ['.npmrc'],
   bun: ['bunfig.toml', '.npmrc'],
@@ -60,10 +60,10 @@ export interface PackageManagerInfo {
 }
 
 /** Returns true when corepack is available on PATH. */
-export function isCorepackAvailable(): boolean {
+export const isCorepackAvailable = (): boolean => {
   const result = spawnSync('corepack', ['--version'], { encoding: 'utf8' });
   return !result.error && result.status === 0;
-}
+};
 
 /**
  * Detect the package manager for a given project root directory.
@@ -74,7 +74,7 @@ export function isCorepackAvailable(): boolean {
  *   3. Lock file present in `projectRoot`
  *   4. npm fallback
  */
-export function detectPackageManager(projectRoot: string): PackageManagerInfo {
+export const detectPackageManager = (projectRoot: string): PackageManagerInfo => {
   const pkgPath = path.join(projectRoot, 'package.json');
 
   if (fs.existsSync(pkgPath)) {
@@ -117,7 +117,7 @@ export function detectPackageManager(projectRoot: string): PackageManagerInfo {
 
   // 4. Fallback
   return buildInfo('npm', undefined, false, undefined, projectRoot);
-}
+};
 
 const getLockFile = (name: PackageManagerName, projectRoot: string): string => {
   switch (name) {
@@ -188,18 +188,94 @@ const buildInfo = (
 });
 
 /**
+ * Filters pnpm-workspace.yaml content to only include patchedDependencies
+ * entries for packages in nodeModules. Relevant patch files are copied to
+ * outputDir. Entries for packages not being installed are stripped to avoid
+ * ERR_PNPM_UNUSED_PATCH.
+ */
+const filterPnpmWorkspaceYaml = (
+  content: string,
+  nodeModules: string[],
+  projectRoot: string,
+  outputDir: string,
+): string => {
+  const sectionMatch = content.match(/^(patchedDependencies:\n)((?:[ \t]+[^\n]*\n?)*)/m);
+  if (!sectionMatch) {
+    return content;
+  }
+
+  const result = spawnSync('pnpm', ['config', 'get', 'patchedDependencies', '--dir', projectRoot], {
+    encoding: 'utf8',
+  });
+
+  if (result.error || result.status !== 0) {
+    return content;
+  }
+
+  const fullMatch = sectionMatch[0];
+  const header = sectionMatch[1] as string;
+
+  let allPatches: Record<string, string>;
+  try {
+    const parsed: unknown = JSON.parse(String(result.stdout).trim());
+    if (!isRecord(parsed)) {
+      return content.replace(fullMatch, '');
+    }
+    allPatches = parsed as Record<string, string>;
+  } catch {
+    return content;
+  }
+
+  const relevantEntries: [string, string][] = [];
+  for (const [pkgKey, absolutePath] of Object.entries(allPatches)) {
+    if (typeof absolutePath !== 'string') {
+      continue;
+    }
+    const pkgName = pkgKey.replace(/@\d[^@]*$/, '');
+    if (nodeModules.includes(pkgName)) {
+      relevantEntries.push([pkgKey, path.relative(projectRoot, absolutePath)]);
+    }
+  }
+
+  for (const [, relativePath] of relevantEntries) {
+    const src = path.join(projectRoot, relativePath);
+    if (!fs.existsSync(src)) {
+      continue;
+    }
+    const dest = path.join(outputDir, relativePath);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+
+  if (relevantEntries.length === 0) {
+    return content.replace(fullMatch, '');
+  }
+
+  const newLines = relevantEntries.map(([key, val]) => `  '${key}': ${val}`);
+  return content.replace(fullMatch, `${header}${newLines.join('\n')}\n`);
+};
+
+/**
  * Copy workspace config files (e.g. pnpm-workspace.yaml, .npmrc) from
  * `projectRoot` into `outputDir`, skipping any that don't exist.
  */
-export function copyWorkspaceFiles(
+export const copyWorkspaceFiles = (
   projectRoot: string,
   outputDir: string,
   pm: PackageManagerInfo,
-): void {
+  nodeModules: string[] = [],
+): void => {
   for (const file of pm.workspaceFiles) {
     const src = path.join(projectRoot, file);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(outputDir, file));
+    if (!fs.existsSync(src)) {
+      continue;
+    }
+    const dest = path.join(outputDir, file);
+    if (pm.name === 'pnpm' && file === 'pnpm-workspace.yaml') {
+      const content = fs.readFileSync(src, 'utf8');
+      fs.writeFileSync(dest, filterPnpmWorkspaceYaml(content, nodeModules, projectRoot, outputDir));
+    } else {
+      fs.copyFileSync(src, dest);
     }
   }
-}
+};
