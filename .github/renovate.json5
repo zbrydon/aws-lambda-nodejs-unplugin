@@ -1,3 +1,13 @@
 {
   extends: ['github>seek-oss/rynovate'],
+  customManagers: [
+    {
+      customType: 'regex',
+      fileMatch: ['(^|/)package\\.json$'],
+      matchStrings: [
+        '"devEngines":\\s*\\{\\s*"packageManager":\\s*\\{\\s*"name":\\s*"(?<depName>[^"]+)",\\s*"version":\\s*"(?<currentValue>[^"]+)"',
+      ],
+      datasourceTemplate: 'npm',
+    },
+  ],
 }
