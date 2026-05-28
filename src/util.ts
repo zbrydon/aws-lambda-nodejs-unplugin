@@ -39,7 +39,7 @@ export const isCallSite = (item: unknown): item is CallSite => {
  * Get callsites from the V8 stack trace API.
  * https://github.com/sindresorhus/callsites
  */
-export function callsites(): CallSite[] {
+export const callsites = (): CallSite[] => {
   // eslint-disable-next-line @typescript-eslint/unbound-method -- static property, not an instance method; `this` is irrelevant
   const _prepareStackTrace = Error.prepareStackTrace;
   Error.prepareStackTrace = (_, stack) => stack;
@@ -54,18 +54,17 @@ export function callsites(): CallSite[] {
     return [];
   }
   return stack.slice(1).filter(isCallSite);
-}
+};
 
 /** Find a file by walking up parent directories. */
-export function findUp(name: string, directory: string = process.cwd()): string | undefined {
-  return findUpMultiple([name], directory)[0];
-}
+export const findUp = (name: string, directory: string = process.cwd()): string | undefined =>
+  findUpMultiple([name], directory)[0];
 
 /**
  * Find the lowest occurrence of any of the given names by walking up parent
  * directories. If multiple names exist at the same level, all are returned.
  */
-export function findUpMultiple(names: string[], directory: string = process.cwd()): string[] {
+export const findUpMultiple = (names: string[], directory: string = process.cwd()): string[] => {
   const absoluteDirectory = path.resolve(directory);
 
   const files: string[] = [];
@@ -86,7 +85,7 @@ export function findUpMultiple(names: string[], directory: string = process.cwd(
   }
 
   return findUpMultiple(names, path.dirname(absoluteDirectory));
-}
+};
 
 /** Returns true when value is an object whose every value is a string — i.e. a dependency map. */
 const isDependencySection = (value: unknown): value is Record<string, string> =>
@@ -154,7 +153,7 @@ const tryGetModuleVersionFromRequire = (mod: string, fromDir: string): string | 
  * Extract pinned versions for a list of modules from the caller's package.json,
  * falling back to `require('<mod>/package.json').version` for transitive deps.
  */
-export function extractDependencies(pkgPath: string, modules: string[]): Record<string, string> {
+export const extractDependencies = (pkgPath: string, modules: string[]): Record<string, string> => {
   const result: Record<string, string> = {};
   const parsed: unknown = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   if (!isRecord(parsed)) {
@@ -177,4 +176,4 @@ export function extractDependencies(pkgPath: string, modules: string[]): Record<
   }
 
   return result;
-}
+};

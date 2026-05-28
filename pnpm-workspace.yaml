@@ -1,10 +1,7 @@
 allowBuilds:
-  '@ast-grep/lang-json': set this to true or false
-  '@ast-grep/lang-yaml': set this to true or false
   core-js: true
   esbuild: true
-  unrs-resolver: set this to true or false
-
+pmOnFail: error
 blockExoticSubdeps: true
 ignorePatchFailures: false
 minimumReleaseAge: 4320
@@ -14,4 +11,6 @@ trustPolicyExclude:
   - semver@6.3.1
   - ua-parser-js@1.0.41
 overrides:
-  fflate: 0.8.2
+  '@arethetypeswrong/core@0.18.1>fflate': 0.8.2
+patchedDependencies:
+  '@changesets/cli@2.31.0': patches/@changesets__cli@2.31.0.patch

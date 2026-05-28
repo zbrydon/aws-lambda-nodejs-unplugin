@@ -117,7 +117,7 @@ export class Bundling implements cdk.BundlingOptions {
           fs.writeFileSync(path.join(outputDir, 'package.json'), JSON.stringify(outputPkg));
 
           // Copy workspace config files so catalog: / workspace: resolve correctly.
-          copyWorkspaceFiles(props.projectRoot, outputDir, pm);
+          copyWorkspaceFiles(props.projectRoot, outputDir, pm, props.nodeModules);
 
           // Copy lock file.  Always source from the explicit depsLockFilePath
           // (validated to exist in NodejsFunction) so a non-standard location

@@ -109,8 +109,7 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "11.2.2",
-      "onFail": "error"
+      "version": "11.2.2"
     }
   },
   "engines": {
