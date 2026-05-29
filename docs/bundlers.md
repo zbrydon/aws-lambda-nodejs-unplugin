@@ -165,7 +165,7 @@ new NodejsFunction(this, 'my-fn', {
 **Install:**
 
 ```sh
-pnpm add -D webpack webpack-cli
+pnpm add -D webpack
 ```
 
 **`webpack.lambda.config.mjs`:**

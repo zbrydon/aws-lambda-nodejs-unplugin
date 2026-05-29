@@ -35,7 +35,7 @@ export interface NodejsFunctionProps extends lambda.FunctionOptions {
 
   /**
    * Path to the dependencies lock file.
-   * @default - located by walking up from the entry file
+   * @default - located by walking up parent directories from the current working directory
    */
   readonly depsLockFilePath?: string;
 

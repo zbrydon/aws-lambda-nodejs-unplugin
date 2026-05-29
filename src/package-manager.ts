@@ -204,36 +204,19 @@ const filterPnpmWorkspaceYaml = (
     return content;
   }
 
-  const result = spawnSync('pnpm', ['config', 'get', 'patchedDependencies', '--dir', projectRoot], {
-    encoding: 'utf8',
-  });
-
-  if (result.error || result.status !== 0) {
-    return content;
-  }
-
   const fullMatch = sectionMatch[0];
   const header = sectionMatch[1] as string;
+  const sectionBody = sectionMatch[2] as string;
 
-  let allPatches: Record<string, string>;
-  try {
-    const parsed: unknown = JSON.parse(String(result.stdout).trim());
-    if (!isRecord(parsed)) {
-      return content.replace(fullMatch, '');
-    }
-    allPatches = parsed as Record<string, string>;
-  } catch {
-    return content;
-  }
-
+  const entryPattern = /^[ \t]+['"]?([^'":\n]+)['"]?:[ \t]+(.+)$/gm;
   const relevantEntries: [string, string][] = [];
-  for (const [pkgKey, absolutePath] of Object.entries(allPatches)) {
-    if (typeof absolutePath !== 'string') {
-      continue;
-    }
+  let m: RegExpExecArray | null;
+  while ((m = entryPattern.exec(sectionBody)) !== null) {
+    const pkgKey = (m[1] as string).trim();
+    const relativePath = (m[2] as string).trim();
     const pkgName = pkgKey.replace(/@\d[^@]*$/, '');
     if (nodeModules.includes(pkgName)) {
-      relevantEntries.push([pkgKey, path.relative(projectRoot, absolutePath)]);
+      relevantEntries.push([pkgKey, relativePath]);
     }
   }
 

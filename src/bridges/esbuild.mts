@@ -23,9 +23,10 @@ const externalPlugin: Plugin = {
   },
 };
 
+const { outdir: _outdir, outfile: _of, entryPoints: _ep, ...restConfig } = userConfig;
 await build({
-  ...userConfig,
+  ...restConfig,
   entryPoints: [entry],
   outfile: path.join(outputDir, 'index.js'),
-  plugins: [...(userConfig.plugins ?? []), externalPlugin],
+  plugins: [...(restConfig.plugins ?? []), externalPlugin],
 });

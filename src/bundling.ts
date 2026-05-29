@@ -28,6 +28,7 @@ export interface BundlingProps extends BundlingOptions {
  * supported; `local.tryBundle` always returns true.
  */
 export class Bundling implements cdk.BundlingOptions {
+  /** @param _scope Reserved for future CDK construct tree integration; currently unused. */
   static bundle(_scope: IConstruct, props: BundlingProps): AssetCode {
     return lambda.Code.fromAsset(props.projectRoot, {
       assetHash: props.assetHash,
