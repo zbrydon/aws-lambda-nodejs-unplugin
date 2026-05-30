@@ -3,5 +3,5 @@ import type { BundlerAdapter } from './types.ts';
 
 export const rspackAdapter: BundlerAdapter = {
   name: 'rspack',
-  bridgeScriptPath: fileURLToPath(new URL('../../dist/bridges/rspack.mjs', import.meta.url)),
+  bridgeScriptPath: fileURLToPath(new URL('./bridges/rspack.mjs', import.meta.url)),
 };

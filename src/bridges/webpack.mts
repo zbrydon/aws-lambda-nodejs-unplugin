@@ -1,6 +1,7 @@
 import webpack from 'webpack';
 import type { Configuration } from 'webpack';
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -46,3 +47,4 @@ await new Promise<void>((resolve, reject) => {
     resolve();
   });
 });
+writeBundleMeta(outputDir, userConfig.output?.module === true ? 'esm' : undefined);

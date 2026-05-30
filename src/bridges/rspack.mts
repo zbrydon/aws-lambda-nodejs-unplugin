@@ -1,6 +1,7 @@
 import { rspack } from '@rspack/core';
 import type { Configuration } from '@rspack/core';
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -24,7 +25,13 @@ const compiler = rspack(finalConfig);
 
 if (nodeModules.length > 0) {
   const { ExternalsPlugin } = compiler.rspack;
-  new ExternalsPlugin('commonjs', nodeModules).apply(compiler);
+  new ExternalsPlugin('commonjs', ({ request }, callback) => {
+    if (nodeModules.some((m) => request === m || request?.startsWith(`${m}/`))) {
+      callback(undefined, request);
+      return;
+    }
+    callback();
+  }).apply(compiler);
 }
 
 await new Promise<void>((resolve, reject) => {
@@ -40,3 +47,4 @@ await new Promise<void>((resolve, reject) => {
     compiler.close(() => resolve());
   });
 });
+writeBundleMeta(outputDir, userConfig.output?.module === true ? 'esm' : undefined);
