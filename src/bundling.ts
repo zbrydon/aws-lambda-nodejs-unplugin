@@ -94,6 +94,16 @@ export class Bundling implements cdk.BundlingOptions {
           throw new ValidationError(`Bundler '${props.bundler}' ${detail}.`);
         }
 
+        const metaPath = path.join(outputDir, '.lambda-bundle-meta');
+        let isEsm = false;
+        if (fs.existsSync(metaPath)) {
+          const { format } = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
+            format: string | null;
+          };
+          isEsm = format === 'esm' || format === 'es';
+          fs.unlinkSync(metaPath);
+        }
+
         // 3. Install nodeModules
         if (props.nodeModules?.length) {
           const pkgJsonPath = findUp('package.json', path.dirname(props.entry));
@@ -110,8 +120,11 @@ export class Bundling implements cdk.BundlingOptions {
 
           const deps = extractDependencies(pkgJsonPath, props.nodeModules);
 
-          // Write a minimal package.json with optional packageManager for corepack.
+          // Write a minimal package.json with optional type for ESM and packageManager for corepack.
           const outputPkg: Record<string, unknown> = { dependencies: deps };
+          if (isEsm) {
+            outputPkg.type = 'module';
+          }
           if (pm.packageManagerField) {
             outputPkg.packageManager = pm.packageManagerField;
           }
@@ -147,6 +160,14 @@ export class Bundling implements cdk.BundlingOptions {
                 : `exited with status ${installResult.status}`;
             throw new ValidationError(`Package manager '${pm.name}' install ${detail}.`);
           }
+        }
+
+        // ESM without nodeModules still needs package.json with type: module.
+        if (!props.nodeModules?.length && isEsm) {
+          fs.writeFileSync(
+            path.join(outputDir, 'package.json'),
+            JSON.stringify({ type: 'module' }),
+          );
         }
 
         // 4. afterBundling hooks

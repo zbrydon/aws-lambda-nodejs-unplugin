@@ -2,6 +2,7 @@ import { build } from 'vite';
 import type { Plugin } from 'vite';
 
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -47,3 +48,4 @@ await build({
     },
   },
 });
+writeBundleMeta(outputDir, baseOutput?.format);

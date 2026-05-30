@@ -1,5 +1,6 @@
 import type { InputOptions, OutputOptions, Plugin } from 'rollup';
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 type RollBundler = (options: InputOptions) => Promise<{
   write(options: OutputOptions): Promise<unknown>;
@@ -43,4 +44,5 @@ export const runRollBridge = async (bundler: RollBundler): Promise<void> => {
   const bundle = await bundler(inputOptions);
   await bundle.write(outputOptions);
   await bundle.close();
+  writeBundleMeta(outputDir, outputOptions.format);
 };

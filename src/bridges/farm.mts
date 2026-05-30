@@ -1,6 +1,7 @@
 import { build } from '@farmfe/core';
 
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -27,3 +28,4 @@ await build({
     external: [...(userConfig.compilation?.external ?? []), ...nodeModulePatterns],
   },
 });
+writeBundleMeta(outputDir, userConfig.compilation?.output?.format);

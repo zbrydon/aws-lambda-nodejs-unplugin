@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import type { Plugin } from 'esbuild';
 import * as path from 'path';
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -30,3 +31,4 @@ await build({
   outfile: path.join(outputDir, 'index.js'),
   plugins: [...(restConfig.plugins ?? []), externalPlugin],
 });
+writeBundleMeta(outputDir, restConfig.format);

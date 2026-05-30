@@ -1,6 +1,7 @@
 import { rspack } from '@rspack/core';
 import type { Configuration } from '@rspack/core';
 import { getArgs } from './get-args.ts';
+import { writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir, nodeModules } = getArgs();
 
@@ -46,3 +47,4 @@ await new Promise<void>((resolve, reject) => {
     compiler.close(() => resolve());
   });
 });
+writeBundleMeta(outputDir, userConfig.output?.module === true ? 'esm' : undefined);

@@ -555,6 +555,138 @@ describe('Bundling.local.tryBundle', () => {
     }
   });
 
+  it('writes type:module to package.json when bridge reports esm format with nodeModules', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(
+          path.join(outDir, '.lambda-bundle-meta'),
+          JSON.stringify({ format: 'esm' }),
+        );
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
+      bundling.local.tryBundle(outputDir, bundling);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8'));
+      expect(outPkg.type).toBe('module');
+      expect(outPkg.dependencies).toHaveProperty('pino');
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes package.json with type:module when bridge reports esm format without nodeModules', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(
+          path.join(outDir, '.lambda-bundle-meta'),
+          JSON.stringify({ format: 'esm' }),
+        );
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      bundling.local.tryBundle(outputDir, bundling);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8'));
+      expect(outPkg).toEqual({ type: 'module' });
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes package.json with type:module when bridge reports es format (rollup convention)', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(
+          path.join(outDir, '.lambda-bundle-meta'),
+          JSON.stringify({ format: 'es' }),
+        );
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      bundling.local.tryBundle(outputDir, bundling);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8'));
+      expect(outPkg.type).toBe('module');
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write type field when bridge reports cjs format', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(
+          path.join(outDir, '.lambda-bundle-meta'),
+          JSON.stringify({ format: 'cjs' }),
+        );
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
+      bundling.local.tryBundle(outputDir, bundling);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8'));
+      expect(outPkg.type).toBeUndefined();
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write package.json when bridge reports no format and no nodeModules', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      bundling.local.tryBundle(outputDir, bundling);
+
+      expect(fs.existsSync(path.join(outputDir, 'package.json'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('cleans up .lambda-bundle-meta after reading it', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(
+          path.join(outDir, '.lambda-bundle-meta'),
+          JSON.stringify({ format: 'esm' }),
+        );
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      bundling.local.tryBundle(outputDir, bundling);
+
+      expect(fs.existsSync(path.join(outputDir, '.lambda-bundle-meta'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it('resolves a relative bundlerConfig against projectRoot', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
