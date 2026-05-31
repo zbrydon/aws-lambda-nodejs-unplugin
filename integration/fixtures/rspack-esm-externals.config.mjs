@@ -1,27 +1,9 @@
+import { esmExternalsBase } from './esm-externals-base.mjs';
+
 export default {
+  ...esmExternalsBase,
   module: {
-    rules: [
-      {
-        test: /\.[mc]?ts$/,
-        use: 'builtin:swc-loader',
-      },
-    ],
-  },
-  resolve: {
-    extensions: ['.ts', '.js'],
-  },
-  experiments: {
-    outputModule: true,
-  },
-  output: {
-    filename: 'index.js',
-    module: true,
-    library: {
-      type: 'module',
-    },
+    rules: [{ test: /\.[mc]?ts$/, use: 'builtin:swc-loader' }],
   },
   target: 'node',
-  mode: 'production',
-  externalsType: 'module',
-  externals: { zod: 'zod' },
 };

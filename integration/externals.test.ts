@@ -4,10 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as cdk from 'aws-cdk-lib';
-import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
 import { expect, it } from 'vitest';
 import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
+import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
 /**
  * Integration tests that verify `nodeModules` are correctly installed
@@ -25,6 +25,22 @@ import { SUPPORTED_BUNDLERS } from '../src/types.ts';
  *   5. Load the bundle and invoke the handler to confirm the external module
  *      resolves correctly at runtime.
  */
+async function assertExternalZod(
+  outputDir: string,
+  bundler: string,
+  mod: { handler?: unknown },
+): Promise<void> {
+  expect(
+    fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
+    `zod not installed for ${bundler}`,
+  ).toBe(true);
+  expect(typeof mod.handler, 'handler should be a function').toBe('function');
+  const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({ bundler })) as {
+    zodExports: string[];
+  };
+  expect(result.zodExports).toContain('z');
+}
+
 /**
  * T6: multiple packages in nodeModules — verifies that the multi-package
  * install path works end-to-end. Uses esbuild with two separate packages.
@@ -35,13 +51,10 @@ it('installs multiple nodeModules packages for esbuild', async () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-multi-externals-'));
   try {
     const bundling = new Bundling({
+      ...BASE_BUNDLING_PROPS,
       bundler: 'esbuild',
       bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-      runtime: aws_lambda.Runtime.NODEJS_24_X,
-      architecture: aws_lambda.Architecture.ARM_64,
-      depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-      projectRoot: path.resolve('.'),
       nodeModules: ['zod', 'rollup'],
     });
 
@@ -76,13 +89,10 @@ it.each(['webpack', 'rspack'] as const)(
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `lambda-esm-ext-${bundler}-`));
     try {
       const bundling = new Bundling({
+        ...BASE_BUNDLING_PROPS,
         bundler,
         bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm-externals.config.mjs`),
         entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-        runtime: aws_lambda.Runtime.NODEJS_24_X,
-        architecture: aws_lambda.Architecture.ARM_64,
-        depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-        projectRoot: path.resolve('.'),
         nodeModules: ['zod'],
       });
 
@@ -100,17 +110,8 @@ it.each(['webpack', 'rspack'] as const)(
       expect(outPkg.type, 'package.json must have type:module').toBe('module');
       expect(outPkg.dependencies, 'package.json must list zod').toHaveProperty('zod');
 
-      expect(
-        fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
-        `zod not installed for ${bundler}`,
-      ).toBe(true);
-
       const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
-      expect(typeof mod.handler, 'handler should be a function').toBe('function');
-      const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({ bundler })) as {
-        zodExports: string[];
-      };
-      expect(result.zodExports).toContain('z');
+      await assertExternalZod(outputDir, bundler, mod);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -148,13 +149,10 @@ it('Farm bridge enforces index.js output filename regardless of user entryFilena
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farm-entryfilename-out-'));
   try {
     const bundling = new Bundling({
+      ...BASE_BUNDLING_PROPS,
       bundler: 'farm',
       bundlerConfig: configPath,
       entry: path.resolve('integration/fixtures/handler.ts'),
-      runtime: aws_lambda.Runtime.NODEJS_24_X,
-      architecture: aws_lambda.Architecture.ARM_64,
-      depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-      projectRoot: path.resolve('.'),
     });
 
     expect(
@@ -177,13 +175,10 @@ it.each(SUPPORTED_BUNDLERS)(
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `lambda-externals-${bundler}-`));
     try {
       const bundling = new Bundling({
+        ...BASE_BUNDLING_PROPS,
         bundler,
         bundlerConfig: path.resolve(`integration/fixtures/${bundler}-externals.config.mjs`),
         entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-        runtime: aws_lambda.Runtime.NODEJS_24_X,
-        architecture: aws_lambda.Architecture.ARM_64,
-        depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-        projectRoot: path.resolve('.'),
         nodeModules: ['zod'],
       });
 
@@ -195,30 +190,14 @@ it.each(SUPPORTED_BUNDLERS)(
       expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
 
       const bundleContent = fs.readFileSync(indexPath, 'utf-8');
-
       // zod should appear as an external require, not be inlined.
       expect(bundleContent, 'expected zod to be an external require').toMatch(
         /require\(["']zod["']\)/,
       );
 
-      // CDK should have installed zod into node_modules in the output dir.
-      expect(
-        fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
-        `zod not found in ${outputDir}/node_modules`,
-      ).toBe(true);
-
-      // The handler should resolve the external module from the output node_modules
-      // and execute successfully.
       const require = createRequire(import.meta.url);
       const mod = require(indexPath) as { handler?: unknown };
-      expect(typeof mod.handler, 'handler should be a function').toBe('function');
-
-      const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({
-        bundler,
-      })) as { zodExports: string[] };
-
-      // z is a named export of zod — confirms the external module resolved correctly.
-      expect(result.zodExports).toContain('z');
+      await assertExternalZod(outputDir, bundler, mod);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }

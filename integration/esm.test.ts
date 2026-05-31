@@ -3,10 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as cdk from 'aws-cdk-lib';
-import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
 import { expect, it } from 'vitest';
 import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
+import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
 /**
  * Integration tests that verify ESM output bundles receive `"type":"module"`
@@ -27,13 +27,10 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-esm-nodemodules-'));
   try {
     const bundling = new Bundling({
+      ...BASE_BUNDLING_PROPS,
       bundler: 'esbuild',
       bundlerConfig: path.resolve('integration/fixtures/esbuild-esm.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-      runtime: aws_lambda.Runtime.NODEJS_24_X,
-      architecture: aws_lambda.Architecture.ARM_64,
-      depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-      projectRoot: path.resolve('.'),
       nodeModules: ['zod'],
     });
 
@@ -75,13 +72,10 @@ it.each(SUPPORTED_BUNDLERS)(
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `lambda-esm-${bundler}-`));
     try {
       const bundling = new Bundling({
+        ...BASE_BUNDLING_PROPS,
         bundler,
         bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm.config.mjs`),
         entry: path.resolve('integration/fixtures/handler.ts'),
-        runtime: aws_lambda.Runtime.NODEJS_24_X,
-        architecture: aws_lambda.Architecture.ARM_64,
-        depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-        projectRoot: path.resolve('.'),
       });
 
       expect(
