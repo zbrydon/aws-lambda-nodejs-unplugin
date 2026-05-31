@@ -10,7 +10,7 @@ const config: KnipConfig = {
   ignore: [
     // Lambda handler fixtures bundled at runtime by the integration tests;
     // they are not imported via TypeScript, so knip can't trace them.
-    'src/testing/fixtures/**',
+    'integration/fixtures/**',
     // Handler fixture resolved by V8 callsite auto-detection at test runtime.
     'integration/**/*.worker.ts',
   ],
