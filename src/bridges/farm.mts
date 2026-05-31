@@ -24,6 +24,8 @@ await build({
     output: {
       ...userConfig.compilation?.output,
       path: outputDir,
+      // Enforce [entryName].js so the output is always index.js regardless of user config.
+      entryFilename: '[entryName].js',
     },
     external: [...(userConfig.compilation?.external ?? []), ...nodeModulePatterns],
   },

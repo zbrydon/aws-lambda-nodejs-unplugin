@@ -16,7 +16,7 @@ const fixBridgeSourcePaths = {
   transform: (code: string, id: string) =>
     /\/src\/bundlers\/[^/]+\.ts$/.test(id)
       ? {
-          code: code.replace(/(new URL\(["'])\.\/bridges\//g, '$1../../dist/bridges/'),
+          code: code.replace(/(new URL\([`"'])\.\/bridges\//g, '$1../../dist/bridges/'),
         }
       : undefined,
 };

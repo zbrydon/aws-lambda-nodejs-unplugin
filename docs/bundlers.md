@@ -62,7 +62,7 @@ export default {
     // SSR mode produces a single CJS bundle with full control over the filename.
     emptyOutDir: false,
     target: 'node24',
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         format: 'cjs',
         entryFileNames: 'index.js',

@@ -25,7 +25,8 @@ const compiler = rspack(finalConfig);
 
 if (nodeModules.length > 0) {
   const { ExternalsPlugin } = compiler.rspack;
-  new ExternalsPlugin('commonjs', ({ request }, callback) => {
+  const externalsType = userConfig.output?.module === true ? 'module' : 'commonjs';
+  new ExternalsPlugin(externalsType, ({ request }, callback) => {
     if (nodeModules.some((m) => request === m || request?.startsWith(`${m}/`))) {
       callback(undefined, request);
       return;

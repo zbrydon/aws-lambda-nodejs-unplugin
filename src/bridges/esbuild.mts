@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import type { Plugin } from 'esbuild';
-import * as path from 'path';
+import * as path from 'node:path';
 import { getArgs } from './get-args.ts';
 import { writeBundleMeta } from './write-meta.ts';
 

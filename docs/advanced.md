@@ -46,7 +46,7 @@ Install commands used:
 | pnpm | `pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-frozen-lockfile` |
 | yarn | `yarn install --no-immutable`                                                                                 |
 | bun  | `bun install --backend copyfile`                                                                              |
-| npm  | `npm ci`                                                                                                      |
+| npm  | `npm ci` (when `package-lock.json` is present), otherwise `npm install`                                       |
 
 When corepack is active (detected via `corepack --version`) and the `packageManager` field is set, the install command is prefixed with `corepack <pm>` so the pinned version is honoured.
 
@@ -140,7 +140,7 @@ With a custom hash, CDK skips re-bundling if the hash string has not changed, re
 
 ## Multiple functions, one bundler config
 
-You can share a single bundler config across multiple `NodejsFunction` instances. The `AWS_LAMBDA_BUNDLE_ENTRY` and `AWS_LAMBDA_BUNDLE_OUTDIR` environment variables are set per-invocation:
+You can share a single bundler config across multiple `NodejsFunction` instances. The CDK bundling driver injects the entry point and output directory into each invocation via `process.argv`, so the same config file is re-used without modification:
 
 ```ts
 const sharedBundling = {

@@ -2,7 +2,6 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { App, Stack } from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ValidationError } from './errors.ts';
@@ -46,11 +45,6 @@ const makeSpawnError = (err: Error) => ({
   signal: null,
 });
 
-const makeScope = () => {
-  const app = new App({ context: { 'aws:cdk:bundling-stacks': [] } });
-  return new Stack(app, 'TestStack');
-};
-
 let tmpDir: string;
 let entryFile: string;
 let pkgJsonPath: string;
@@ -86,8 +80,7 @@ const makeProps = (overrides: Partial<BundlingProps> = {}): BundlingProps => ({
 
 describe('Bundling.bundle', () => {
   it('returns an AssetCode', () => {
-    const scope = makeScope();
-    const code = Bundling.bundle(scope, makeProps());
+    const code = Bundling.bundle(makeProps());
     expect(code).toBeDefined();
   });
 });
@@ -322,8 +315,7 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('passes custom assetHash to Code.fromAsset', () => {
-    const scope = makeScope();
-    const code = Bundling.bundle(scope, makeProps({ assetHash: 'abc123' }));
+    const code = Bundling.bundle(makeProps({ assetHash: 'abc123' }));
     expect(code).toBeDefined();
   });
 
@@ -700,6 +692,46 @@ describe('Bundling.local.tryBundle', () => {
       // args[1] is configPath: must be the absolute resolved path.
       const args = bridgeCall![1] as string[];
       expect(args[1]).toBe(path.join(tmpDir, 'build.mjs'));
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not invoke beforeInstall hook when nodeModules is not set', () => {
+    let beforeInstallCalled = false;
+    const bundling = new Bundling(
+      makeProps({
+        commandHooks: {
+          beforeBundling: () => [],
+          afterBundling: () => [],
+          beforeInstall: () => {
+            beforeInstallCalled = true;
+            return ['echo should-not-run'];
+          },
+        },
+      }),
+    );
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      bundling.local.tryBundle(outputDir, bundling);
+      expect(beforeInstallCalled).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('installs multiple nodeModules and writes all dependencies to package.json', () => {
+    fs.writeFileSync(pkgJsonPath, JSON.stringify({ dependencies: { pino: '^9', zod: '4.4.3' } }));
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino', 'zod'] }));
+      bundling.local.tryBundle(outputDir, bundling);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8'));
+      expect(outPkg.dependencies).toHaveProperty('pino');
+      expect(outPkg.dependencies).toHaveProperty('zod');
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }

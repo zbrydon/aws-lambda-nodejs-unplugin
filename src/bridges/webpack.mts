@@ -13,8 +13,9 @@ if (!userConfig || typeof userConfig !== 'object') {
 
 const plugins = [...(userConfig.plugins ?? [])];
 if (nodeModules.length > 0) {
+  const externalsType = userConfig.output?.module === true ? 'module' : 'commonjs';
   plugins.push(
-    new webpack.ExternalsPlugin('commonjs', ({ request }, callback) => {
+    new webpack.ExternalsPlugin(externalsType, ({ request }, callback) => {
       if (nodeModules.some((m) => request === m || request?.startsWith(`${m}/`))) {
         return callback(null, request);
       }

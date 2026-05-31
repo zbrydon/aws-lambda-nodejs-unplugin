@@ -1,7 +1,7 @@
-import { pathToFileURL } from 'url';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as cdk from 'aws-cdk-lib';
 import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
 import { expect, it } from 'vitest';
@@ -18,6 +18,57 @@ import { SUPPORTED_BUNDLERS } from '../src/types.ts';
  *   3. Assert package.json exists with `"type":"module"`.
  *   4. Load index.js via dynamic import and invoke handler to confirm it executes.
  */
+/**
+ * T1: verify that ESM output combined with nodeModules produces a package.json
+ * that has both `"type":"module"` and the installed dependency, and that the
+ * handler resolves the external module from the output node_modules at runtime.
+ */
+it('ESM bundle with nodeModules gets type:module and installed dependency (esbuild)', async () => {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-esm-nodemodules-'));
+  try {
+    const bundling = new Bundling({
+      bundler: 'esbuild',
+      bundlerConfig: path.resolve('src/testing/fixtures/esbuild-esm.config.mjs'),
+      entry: path.resolve('src/testing/fixtures/handler-with-dep.ts'),
+      runtime: aws_lambda.Runtime.NODEJS_24_X,
+      architecture: aws_lambda.Architecture.ARM_64,
+      depsLockFilePath: path.resolve('pnpm-lock.yaml'),
+      projectRoot: path.resolve('.'),
+      nodeModules: ['zod'],
+    });
+
+    expect(
+      bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
+    ).toBe(true);
+
+    const indexPath = path.join(outputDir, 'index.js');
+    expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
+
+    const pkgJsonPath = path.join(outputDir, 'package.json');
+    expect(fs.existsSync(pkgJsonPath), `package.json missing`).toBe(true);
+    const outPkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')) as {
+      type?: string;
+      dependencies?: Record<string, string>;
+    };
+    expect(outPkg.type, 'package.json must have type:module').toBe('module');
+    expect(outPkg.dependencies, 'package.json must list zod').toHaveProperty('zod');
+
+    expect(
+      fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
+      'zod not installed in node_modules',
+    ).toBe(true);
+
+    const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
+    expect(typeof mod.handler, 'handler should be a function').toBe('function');
+    const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({})) as {
+      zodExports: string[];
+    };
+    expect(result.zodExports).toContain('z');
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+}, 120_000);
+
 it.each(SUPPORTED_BUNDLERS)(
   'writes type:module to package.json and produces a callable ESM handler for bundler: %s',
   async (bundler) => {
