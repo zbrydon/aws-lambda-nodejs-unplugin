@@ -67,13 +67,7 @@ export class Bundling implements cdk.BundlingOptions {
 
         const bundleResult = spawnSync(
           'node',
-          [
-            adapter.bridgeScriptPath,
-            configPath,
-            props.entry,
-            outputDir,
-            JSON.stringify(props.nodeModules ?? []),
-          ],
+          [adapter.bridgeScriptPath, configPath, props.entry, outputDir],
           {
             env: process.env,
             stdio: ['ignore', 'inherit', 'inherit'],

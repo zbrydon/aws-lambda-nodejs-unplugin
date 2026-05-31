@@ -4,9 +4,9 @@ export interface BundlerAdapter {
   /**
    * Absolute path to the pre-built ESM bridge script for this bundler.
    *
-   * The caller spawns `node [bridgeScriptPath] [configPath] [entry] [outputDir] [nodeModulesJson]`.
+   * The caller spawns `node [bridgeScriptPath] [configPath] [entry] [outputDir]`.
    * The script imports the user-supplied config, merges CDK-controlled entry/output values,
-   * injects an externals plugin for `nodeModules`, then calls the bundler's JS API.
+   * then calls the bundler's JS API.
    *
    * The script lives inside the package's `dist/bridges/` directory, which sits within the
    * user's `node_modules` tree, so Node's ESM resolver naturally walks up to find the

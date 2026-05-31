@@ -96,7 +96,7 @@ describe('Bundling.local.tryBundle', () => {
       expect(bridgeCall).toBeDefined();
 
       const args = bridgeCall![1] as string[];
-      // args: [bridgeScriptPath, configPath, entry, outputDir, nodeModulesJson]
+      // args: [bridgeScriptPath, configPath, entry, outputDir]
       expect(args[0]).toMatch(/esbuild\.mjs$/);
       expect(args[1]).toBe(path.join(tmpDir, 'build.mjs')); // configPath
       expect(args[2]).toBe(entryFile); // entry

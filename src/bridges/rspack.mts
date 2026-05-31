@@ -3,7 +3,7 @@ import type { Configuration } from '@rspack/core';
 import { getArgs } from './get-args.ts';
 import { writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir, nodeModules } = getArgs();
+const { configPath, entry, outputDir } = getArgs();
 
 const { default: userConfig } = await import(configPath);
 
@@ -22,18 +22,6 @@ const finalConfig: Configuration = {
 };
 
 const compiler = rspack(finalConfig);
-
-if (nodeModules.length > 0) {
-  const { ExternalsPlugin } = compiler.rspack;
-  const externalsType = userConfig.output?.module === true ? 'module' : 'commonjs';
-  new ExternalsPlugin(externalsType, ({ request }, callback) => {
-    if (nodeModules.some((m) => request === m || request?.startsWith(`${m}/`))) {
-      callback(undefined, request);
-      return;
-    }
-    callback();
-  }).apply(compiler);
-}
 
 await new Promise<void>((resolve, reject) => {
   compiler.run((err, stats) => {

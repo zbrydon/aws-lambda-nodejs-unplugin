@@ -52,7 +52,9 @@ When corepack is active (detected via `corepack --version`) and the `packageMana
 
 ### Making modules external in your bundler config
 
-The bundling driver injects an externals plugin for every bundler automatically. Packages listed in `nodeModules` are marked external before the bundler runs, so no manual configuration is required in your bundler config.
+You must declare `nodeModules` packages as external in your bundler config. The driver handles installation and `package.json` generation after bundling, but does not inject externals automatically -- if you omit the declaration the bundler will embed the package in the bundle as well as installing it.
+
+Each bundler has its own syntax for this. See [Bundler configs -- externals](bundlers.md#externals).
 
 ---
 

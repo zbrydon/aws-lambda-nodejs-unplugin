@@ -10,17 +10,19 @@ import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
 
 /**
- * Integration tests that verify `nodeModules` are correctly excluded from the
- * bundle and installed separately in the Lambda output directory.
+ * Integration tests that verify `nodeModules` are correctly installed
+ * separately in the Lambda output directory, with externalization configured
+ * directly in the bundler config rather than via the plugin.
  *
  * For each bundler we:
- *   1. Bundle `handler-with-dep.ts` (which imports `zod`) with
- *      `nodeModules: ['zod']`.
- *   2. Assert that `zod` is referenced externally in the bundle (i.e. a
+ *   1. Bundle `handler-with-dep.ts` (which imports `zod`) using a
+ *      `*-externals.config.mjs` fixture that marks zod external natively.
+ *   2. Pass `nodeModules: ['zod']` to drive the install step only.
+ *   3. Assert that `zod` is referenced externally in the bundle (i.e. a
  *      `require("zod")` call, not inlined code).
- *   3. Assert that `zod` was installed into `node_modules` in the output
+ *   4. Assert that `zod` was installed into `node_modules` in the output
  *      directory by the CDK bundling step.
- *   4. Load the bundle and invoke the handler to confirm the external module
+ *   5. Load the bundle and invoke the handler to confirm the external module
  *      resolves correctly at runtime.
  */
 /**
@@ -34,8 +36,8 @@ it('installs multiple nodeModules packages for esbuild', async () => {
   try {
     const bundling = new Bundling({
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('src/testing/fixtures/esbuild.config.mjs'),
-      entry: path.resolve('src/testing/fixtures/handler-with-dep.ts'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
+      entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
       runtime: aws_lambda.Runtime.NODEJS_24_X,
       architecture: aws_lambda.Architecture.ARM_64,
       depsLockFilePath: path.resolve('pnpm-lock.yaml'),
@@ -75,8 +77,8 @@ it.each(['webpack', 'rspack'] as const)(
     try {
       const bundling = new Bundling({
         bundler,
-        bundlerConfig: path.resolve(`src/testing/fixtures/${bundler}-esm.config.mjs`),
-        entry: path.resolve('src/testing/fixtures/handler-with-dep.ts'),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm-externals.config.mjs`),
+        entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
         runtime: aws_lambda.Runtime.NODEJS_24_X,
         architecture: aws_lambda.Architecture.ARM_64,
         depsLockFilePath: path.resolve('pnpm-lock.yaml'),
@@ -148,7 +150,7 @@ it('Farm bridge enforces index.js output filename regardless of user entryFilena
     const bundling = new Bundling({
       bundler: 'farm',
       bundlerConfig: configPath,
-      entry: path.resolve('src/testing/fixtures/handler.ts'),
+      entry: path.resolve('integration/fixtures/handler.ts'),
       runtime: aws_lambda.Runtime.NODEJS_24_X,
       architecture: aws_lambda.Architecture.ARM_64,
       depsLockFilePath: path.resolve('pnpm-lock.yaml'),
@@ -176,8 +178,8 @@ it.each(SUPPORTED_BUNDLERS)(
     try {
       const bundling = new Bundling({
         bundler,
-        bundlerConfig: path.resolve(`src/testing/fixtures/${bundler}.config.mjs`),
-        entry: path.resolve('src/testing/fixtures/handler-with-dep.ts'),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-externals.config.mjs`),
+        entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
         runtime: aws_lambda.Runtime.NODEJS_24_X,
         architecture: aws_lambda.Architecture.ARM_64,
         depsLockFilePath: path.resolve('pnpm-lock.yaml'),

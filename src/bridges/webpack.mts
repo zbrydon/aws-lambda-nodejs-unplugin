@@ -3,25 +3,12 @@ import type { Configuration } from 'webpack';
 import { getArgs } from './get-args.ts';
 import { writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir, nodeModules } = getArgs();
+const { configPath, entry, outputDir } = getArgs();
 
 const { default: userConfig } = await import(configPath);
 
 if (!userConfig || typeof userConfig !== 'object') {
   throw new Error(`Config file must export a default config object: ${configPath}`);
-}
-
-const plugins = [...(userConfig.plugins ?? [])];
-if (nodeModules.length > 0) {
-  const externalsType = userConfig.output?.module === true ? 'module' : 'commonjs';
-  plugins.push(
-    new webpack.ExternalsPlugin(externalsType, ({ request }, callback) => {
-      if (nodeModules.some((m) => request === m || request?.startsWith(`${m}/`))) {
-        return callback(null, request);
-      }
-      callback();
-    }),
-  );
 }
 
 const finalConfig: Configuration = {
@@ -32,7 +19,6 @@ const finalConfig: Configuration = {
     path: outputDir,
     filename: 'index.js',
   },
-  plugins,
 };
 
 await new Promise<void>((resolve, reject) => {

@@ -1,4 +1,4 @@
-import type { InputOptions, OutputOptions, Plugin } from 'rollup';
+import type { InputOptions, OutputOptions } from 'rollup';
 import { getArgs } from './get-args.ts';
 import { writeBundleMeta } from './write-meta.ts';
 
@@ -8,7 +8,7 @@ type RollBundler = (options: InputOptions) => Promise<{
 }>;
 
 export const runRollBridge = async (bundler: RollBundler): Promise<void> => {
-  const { configPath, entry, outputDir, nodeModules } = getArgs();
+  const { configPath, entry, outputDir } = getArgs();
 
   const { default: userConfig } = await import(configPath);
 
@@ -16,20 +16,9 @@ export const runRollBridge = async (bundler: RollBundler): Promise<void> => {
     throw new Error(`Config file must export a default config object: ${configPath}`);
   }
 
-  const externalPlugin: Plugin = {
-    name: 'lambda-externals',
-    resolveId(id) {
-      if (nodeModules.some((m) => id === m || id.startsWith(`${m}/`))) {
-        return { id, external: true };
-      }
-      return null;
-    },
-  };
-
   const inputOptions: InputOptions = {
     ...userConfig,
     input: entry,
-    plugins: [...(userConfig.plugins ?? []), externalPlugin],
   };
 
   const rawOutput = userConfig.output;
