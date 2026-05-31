@@ -36,4 +36,5 @@ await build({
     },
   },
 });
-writeBundleMeta(outputDir, baseOutput?.format);
+// Vite 6 SSR defaults to 'es' when no format is specified.
+writeBundleMeta(outputDir, baseOutput?.format ?? 'es');
