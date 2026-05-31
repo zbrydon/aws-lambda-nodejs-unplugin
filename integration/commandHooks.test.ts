@@ -15,8 +15,8 @@ import { ValidationError } from '../src/errors.ts';
 
 const baseBundlingProps = {
   bundler: 'esbuild' as const,
-  bundlerConfig: path.resolve('src/testing/fixtures/esbuild.config.mjs'),
-  entry: path.resolve('src/testing/fixtures/handler.ts'),
+  bundlerConfig: path.resolve('integration/fixtures/esbuild.config.mjs'),
+  entry: path.resolve('integration/fixtures/handler.ts'),
   runtime: aws_lambda.Runtime.NODEJS_24_X,
   architecture: aws_lambda.Architecture.ARM_64,
   depsLockFilePath: path.resolve('pnpm-lock.yaml'),

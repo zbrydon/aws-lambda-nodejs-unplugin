@@ -25,8 +25,8 @@ it.each(SUPPORTED_BUNDLERS)(
     try {
       const bundling = new Bundling({
         bundler,
-        bundlerConfig: path.resolve(`src/testing/fixtures/${bundler}.config.mjs`),
-        entry: path.resolve('src/testing/fixtures/handler.ts'),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}.config.mjs`),
+        entry: path.resolve('integration/fixtures/handler.ts'),
         runtime: aws_lambda.Runtime.NODEJS_24_X,
         architecture: aws_lambda.Architecture.ARM_64,
         depsLockFilePath: path.resolve('pnpm-lock.yaml'),

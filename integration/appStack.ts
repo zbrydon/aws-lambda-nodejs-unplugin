@@ -16,11 +16,11 @@ export class AppStack extends Stack {
       runtime: aws_lambda.Runtime.NODEJS_24_X,
       architecture: aws_lambda.Architecture.ARM_64,
       memorySize: 512,
-      entry: 'src/testing/fixtures/handler.ts',
+      entry: './integration/fixtures/handler.ts',
       timeout: Duration.seconds(30),
       bundling: {
         bundler: props.bundler,
-        bundlerConfig: `src/testing/fixtures/${props.bundler}.config.mjs`,
+        bundlerConfig: `integration/fixtures/${props.bundler}.config.mjs`,
       },
       environment: {
         NODE_ENV: 'production',
