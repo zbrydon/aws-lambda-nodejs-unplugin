@@ -27,4 +27,10 @@ export interface BundlingOptions {
   commandHooks?: ICommandHooks;
   /** Custom asset hash; if omitted the hash is derived from output content. */
   assetHash?: string;
+  /**
+   * Maximum time in milliseconds any spawned subprocess (bundler, package
+   * manager install, or command hook) may run before it is killed and the
+   * bundle fails. Omit for no timeout.
+   */
+  timeout?: number;
 }

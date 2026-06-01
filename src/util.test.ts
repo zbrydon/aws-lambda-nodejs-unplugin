@@ -2,7 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ValidationError } from './errors.ts';
-import { callsites, extractDependencies, findUp, findUpMultiple, isCallSite } from './util.ts';
+import {
+  callsites,
+  extractDependencies,
+  findUp,
+  findUpMultiple,
+  isCallSite,
+  parseJsonFile,
+} from './util.ts';
 
 describe('isCallSite', () => {
   it('returns false for non-record values', () => {
@@ -65,6 +72,26 @@ describe('findUp', () => {
   it('returns undefined when file does not exist', () => {
     const result = findUp('__nonexistent_xyzzy__.json');
     expect(result).toBeUndefined();
+  });
+});
+
+describe('parseJsonFile', () => {
+  const tmpJsonPath = path.join(process.cwd(), '__test_parse__.json');
+
+  afterEach(() => {
+    if (fs.existsSync(tmpJsonPath)) {
+      fs.unlinkSync(tmpJsonPath);
+    }
+  });
+
+  it('returns the parsed value for valid JSON', () => {
+    fs.writeFileSync(tmpJsonPath, JSON.stringify({ a: 1 }));
+    expect(parseJsonFile(tmpJsonPath)).toEqual({ a: 1 });
+  });
+
+  it('throws ValidationError for malformed JSON', () => {
+    fs.writeFileSync(tmpJsonPath, 'not-json{');
+    expect(() => parseJsonFile(tmpJsonPath)).toThrow(ValidationError);
   });
 });
 

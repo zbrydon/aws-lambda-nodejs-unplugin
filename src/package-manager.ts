@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isRecord } from './util.ts';
+import { isRecord, parseJsonFile } from './util.ts';
 
 export type PackageManagerName = 'npm' | 'yarn' | 'pnpm' | 'bun';
 
@@ -81,7 +81,7 @@ export const detectPackageManager = (projectRoot: string): PackageManagerInfo =>
   const pkgPath = path.join(projectRoot, 'package.json');
 
   if (fs.existsSync(pkgPath)) {
-    const parsed: unknown = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const parsed: unknown = parseJsonFile(pkgPath);
 
     if (isRecord(parsed)) {
       // 1. packageManager field (e.g. "pnpm@9.0.0")
