@@ -99,7 +99,7 @@ CDK invokes your bundler during synthesis. Output is written to the CDK asset st
 `NodejsFunction` from this package is a structural drop-in. The differences are:
 
 - `bundling` is required and takes `BundlingOptions` (not `aws_lambda_nodejs.BundlingOptions`).
-- There is no `externalModules` option; use `nodeModules` instead to install packages rather than bundle them.
+- There is no `externalModules` option. To prevent a package from being bundled, use your bundler's native `external` config option. To install a package into the Lambda output directory (e.g. for native binaries), use `nodeModules`.
 - `depsLockFilePath` is detected automatically if not set (same heuristic as the CDK built-in).
 
 All `lambda.FunctionOptions` props (`environment`, `timeout`, `memorySize`, `architecture`, `layers`, etc.) work unchanged.

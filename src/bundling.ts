@@ -1,16 +1,15 @@
-import { spawnSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { ILocalBundling } from 'aws-cdk-lib';
 import * as cdk from 'aws-cdk-lib';
 import type { Architecture, AssetCode, Runtime } from 'aws-cdk-lib/aws-lambda';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import type { IConstruct } from 'constructs';
 import { getBundler } from './bundlers/index.ts';
 import { ValidationError } from './errors.ts';
 import { copyWorkspaceFiles, detectPackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
-import { extractDependencies, findUp } from './util.ts';
+import { extractDependencies, findUp, isRecord } from './util.ts';
 
 export interface BundlingProps extends BundlingOptions {
   entry: string;
@@ -28,8 +27,7 @@ export interface BundlingProps extends BundlingOptions {
  * supported; `local.tryBundle` always returns true.
  */
 export class Bundling implements cdk.BundlingOptions {
-  /** @param _scope Reserved for future CDK construct tree integration; currently unused. */
-  static bundle(_scope: IConstruct, props: BundlingProps): AssetCode {
+  static bundle(props: BundlingProps): AssetCode {
     return lambda.Code.fromAsset(props.projectRoot, {
       assetHash: props.assetHash,
       assetHashType: props.assetHash ? cdk.AssetHashType.CUSTOM : cdk.AssetHashType.OUTPUT,
@@ -69,13 +67,7 @@ export class Bundling implements cdk.BundlingOptions {
 
         const bundleResult = spawnSync(
           'node',
-          [
-            adapter.bridgeScriptPath,
-            configPath,
-            props.entry,
-            outputDir,
-            JSON.stringify(props.nodeModules ?? []),
-          ],
+          [adapter.bridgeScriptPath, configPath, props.entry, outputDir],
           {
             env: process.env,
             stdio: ['ignore', 'inherit', 'inherit'],
@@ -97,9 +89,9 @@ export class Bundling implements cdk.BundlingOptions {
         const metaPath = path.join(outputDir, '.lambda-bundle-meta');
         let isEsm = false;
         if (fs.existsSync(metaPath)) {
-          const { format } = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as {
-            format: string | null;
-          };
+          const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          const format =
+            isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : null;
           isEsm = format === 'esm' || format === 'es';
           fs.unlinkSync(metaPath);
         }

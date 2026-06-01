@@ -1,26 +1,15 @@
 import { build } from 'vite';
-import type { Plugin } from 'vite';
 
 import { getArgs } from './get-args.ts';
 import { writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir, nodeModules } = getArgs();
+const { configPath, entry, outputDir } = getArgs();
 
 const { default: userConfig } = await import(configPath);
 
 if (!userConfig || typeof userConfig !== 'object') {
   throw new Error(`Config file must export a default config object: ${configPath}`);
 }
-
-const externalPlugin: Plugin = {
-  name: 'lambda-externals',
-  resolveId(id) {
-    if (nodeModules.some((m) => id === m || id.startsWith(`${m}/`))) {
-      return { id, external: true };
-    }
-    return null;
-  },
-};
 
 // Support rolldownOptions (Vite 6+) and the deprecated rollupOptions alias.
 const rollOptions = userConfig.build?.rolldownOptions ?? userConfig.build?.rollupOptions;
@@ -33,7 +22,6 @@ const { rollupOptions: _ruo, rolldownOptions: _rdo, ...restBuild } = userConfig.
 
 await build({
   ...userConfig,
-  plugins: [...(userConfig.plugins ?? []), externalPlugin],
   build: {
     ...restBuild,
     ssr: entry,
@@ -48,4 +36,5 @@ await build({
     },
   },
 });
-writeBundleMeta(outputDir, baseOutput?.format);
+// Vite 6 SSR defaults to 'es' when no format is specified.
+writeBundleMeta(outputDir, baseOutput?.format ?? 'es');

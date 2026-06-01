@@ -3,10 +3,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
-import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
 import { expect, it } from 'vitest';
 import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
+import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
 /**
  * Integration tests that invoke each supported bundler end-to-end via the
@@ -24,13 +24,10 @@ it.each(SUPPORTED_BUNDLERS)(
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `lambda-bundle-${bundler}-`));
     try {
       const bundling = new Bundling({
+        ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`src/testing/fixtures/${bundler}.config.mjs`),
-        entry: path.resolve('src/testing/fixtures/handler.ts'),
-        runtime: aws_lambda.Runtime.NODEJS_24_X,
-        architecture: aws_lambda.Architecture.ARM_64,
-        depsLockFilePath: path.resolve('pnpm-lock.yaml'),
-        projectRoot: path.resolve('.'),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}.config.mjs`),
+        entry: path.resolve('integration/fixtures/handler.ts'),
       });
 
       expect(

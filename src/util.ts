@@ -1,6 +1,6 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
-import * as path from 'path';
+import * as path from 'node:path';
 import { ValidationError } from './errors.ts';
 
 export interface CallSite {
@@ -61,7 +61,7 @@ export const findUp = (name: string, directory: string = process.cwd()): string 
   findUpMultiple([name], directory)[0];
 
 /**
- * Find the lowest occurrence of any of the given names by walking up parent
+ * Find the nearest occurrence of any of the given names by walking up parent
  * directories. If multiple names exist at the same level, all are returned.
  */
 export const findUpMultiple = (names: string[], directory: string = process.cwd()): string[] => {

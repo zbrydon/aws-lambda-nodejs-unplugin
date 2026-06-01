@@ -46,13 +46,15 @@ Install commands used:
 | pnpm | `pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-frozen-lockfile` |
 | yarn | `yarn install --no-immutable`                                                                                 |
 | bun  | `bun install --backend copyfile`                                                                              |
-| npm  | `npm ci`                                                                                                      |
+| npm  | `npm ci` (when `package-lock.json` is present), otherwise `npm install`                                       |
 
 When corepack is active (detected via `corepack --version`) and the `packageManager` field is set, the install command is prefixed with `corepack <pm>` so the pinned version is honoured.
 
 ### Making modules external in your bundler config
 
-The bundling driver injects an externals plugin for every bundler automatically. Packages listed in `nodeModules` are marked external before the bundler runs, so no manual configuration is required in your bundler config.
+You must declare `nodeModules` packages as external in your bundler config. The driver handles installation and `package.json` generation after bundling, but does not inject externals automatically -- if you omit the declaration the bundler will embed the package in the bundle as well as installing it.
+
+Each bundler has its own syntax for this. See [Bundler configs -- externals](bundlers.md#externals).
 
 ---
 
@@ -140,7 +142,7 @@ With a custom hash, CDK skips re-bundling if the hash string has not changed, re
 
 ## Multiple functions, one bundler config
 
-You can share a single bundler config across multiple `NodejsFunction` instances. The `AWS_LAMBDA_BUNDLE_ENTRY` and `AWS_LAMBDA_BUNDLE_OUTDIR` environment variables are set per-invocation:
+You can share a single bundler config across multiple `NodejsFunction` instances. The CDK bundling driver injects the entry point and output directory into each invocation via `process.argv`, so the same config file is re-used without modification:
 
 ```ts
 const sharedBundling = {

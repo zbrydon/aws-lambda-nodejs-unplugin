@@ -1,4 +1,4 @@
 import { rolldown } from 'rolldown';
 import { runRollBridge } from './roll-factory.mts';
 
-await runRollBridge(rolldown as Parameters<typeof runRollBridge>[0]);
+await runRollBridge(rolldown);

@@ -62,7 +62,7 @@ export default {
     // SSR mode produces a single CJS bundle with full control over the filename.
     emptyOutDir: false,
     target: 'node24',
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         format: 'cjs',
         entryFileNames: 'index.js',
@@ -256,7 +256,6 @@ pnpm add -D @farmfe/core
 export default {
   compilation: {
     output: {
-      entryFilename: '[entryName].js',
       format: 'cjs',
       targetEnv: 'node',
     },
@@ -270,6 +269,8 @@ export default {
 };
 ```
 
+`entryFilename` is enforced by the driver (`[entryName].js`) and does not need to be set in your config.
+
 **CDK construct:**
 
 ```ts
@@ -279,6 +280,79 @@ new NodejsFunction(this, 'my-fn', {
     bundlerConfig: 'farm.lambda.config.mjs',
   },
 });
+```
+
+---
+
+## Externals
+
+When using `nodeModules`, you must mark those packages as external in your bundler config so they are excluded from the bundle. Each bundler uses a different key.
+
+**esbuild**
+
+```js
+export default {
+  bundle: true,
+  platform: 'node',
+  target: 'node24',
+  format: 'cjs',
+  external: ['sharp'],
+};
+```
+
+**Vite**
+
+```js
+export default {
+  build: {
+    rolldownOptions: {
+      external: ['sharp'],
+      output: { format: 'cjs', entryFileNames: 'index.js' },
+    },
+  },
+};
+```
+
+**Rollup / Rolldown**
+
+```js
+export default {
+  output: { entryFileNames: 'index.js', format: 'cjs' },
+  external: [/^node:/, 'sharp'],
+};
+```
+
+**webpack / Rspack -- CJS output**
+
+```js
+export default {
+  // ...
+  externals: { sharp: 'commonjs sharp' },
+};
+```
+
+**webpack / Rspack -- ESM output** (`output.module: true`)
+
+```js
+export default {
+  experiments: { outputModule: true },
+  output: { module: true, library: { type: 'module' } },
+  externalsType: 'module',
+  externals: { sharp: 'sharp' },
+};
+```
+
+**Farm**
+
+Farm externals are regex strings. To match a package and its subpaths use `^<name>(/.*)?$`.
+
+```js
+export default {
+  compilation: {
+    external: ['^node:.*', '^sharp(/.*)?$'],
+    // ...
+  },
+};
 ```
 
 ---

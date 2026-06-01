@@ -1,6 +1,6 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import * as path from 'path';
+import * as path from 'node:path';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import type { Construct } from 'constructs';
 import { Bundling } from './bundling.ts';
@@ -72,7 +72,7 @@ export class NodejsFunction extends lambda.Function {
     super(scope, id, {
       ...props,
       runtime,
-      code: Bundling.bundle(scope, {
+      code: Bundling.bundle({
         ...props.bundling,
         entry,
         runtime,
@@ -109,8 +109,7 @@ const findLockFile = (depsLockFilePath?: string): string => {
       `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
     );
   }
-  // lockFiles.length === 1 is guaranteed by the checks above; noUncheckedIndexedAccess
-  // requires the assertion since TypeScript cannot infer length from runtime guards.
+  // Guaranteed by the length checks above; noUncheckedIndexedAccess requires the cast.
   return lockFiles[0] as string;
 };
 
@@ -155,17 +154,9 @@ const findDefiningFile = (): string => {
 
   for (const [index, site] of sites.entries()) {
     if (site.getFunctionName() === 'NodejsFunction') {
-      // The NodejsFunction constructor runs before its own super() call, so
-      // `this` is in the temporal dead zone and getTypeName() returns null for
-      // that frame.  Starting the walk one frame later, we then skip any
-      // subclass constructor frames that are also in a super() chain
-      // (identifiable by getTypeName() === null && isConstructor() === true;
-      // their `this` is similarly uninitialised).  The first frame that doesn't
-      // match those criteria is the actual call site where
-      // `new NodejsFunction(...)` or `new SubClass(...)` was written.
+      // Start one frame after NodejsFunction itself; skip super()-chain frames
+      // (getTypeName() === null && isConstructor()) to reach the real call site.
       let depth = index + 1;
-      // Skip frames that are in the super()-call chain of a derived class: their
-      // `this` is uninitialised, so getTypeName() === null && isConstructor() === true.
       while (
         depth < sites.length &&
         sites[depth]?.getTypeName() === null &&
@@ -173,10 +164,8 @@ const findDefiningFile = (): string => {
       ) {
         depth++;
       }
-      // Also skip factory-wrapper frames: a non-constructor, null-type frame
-      // sitting between NodejsFunction and the real CDK construct constructor.
-      // We only advance one layer; the common pattern is a single factory
-      // function; nested factories require an explicit `entry`.
+      // Skip one factory-wrapper frame (null type, non-constructor) between
+      // NodejsFunction and the CDK construct constructor.
       if (
         depth + 1 < sites.length &&
         sites[depth]?.getTypeName() === null &&
