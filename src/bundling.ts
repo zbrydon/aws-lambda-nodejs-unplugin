@@ -77,6 +77,7 @@ export class Bundling implements cdk.BundlingOptions {
             env: process.env,
             stdio: ['ignore', 'inherit', 'inherit'],
             cwd: props.projectRoot,
+            timeout: props.timeout,
           },
         );
 
@@ -90,8 +91,10 @@ export class Bundling implements cdk.BundlingOptions {
         const metaPath = path.join(outputDir, '.lambda-bundle-meta');
         let isEsm = false;
         if (fs.existsSync(metaPath)) {
-          // Always remove the meta file, even if parsing throws, so it never
-          // leaks into the bundled asset.
+          // Parse failures are surfaced (the meta file is written by this
+          // package's own bridges, so corruption is a real fault worth failing
+          // on). The `finally` only guarantees cleanup so a malformed meta file
+          // never leaks into the bundled asset.
           try {
             const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
             const format =
@@ -148,6 +151,7 @@ export class Bundling implements cdk.BundlingOptions {
             env: process.env,
             stdio: ['ignore', 'inherit', 'inherit'],
             cwd: outputDir,
+            timeout: props.timeout,
           });
 
           if (installResult.error) {
@@ -157,6 +161,14 @@ export class Bundling implements cdk.BundlingOptions {
             throw new ValidationError(
               `Package manager '${pm.name}' install ${describeExit(installResult)}.`,
             );
+          }
+
+          // Remove the install-only config files now that install is done. These
+          // (notably `.npmrc` / `.yarnrc.yml`) frequently hold registry auth
+          // tokens and are not needed at runtime, so they must never ship inside
+          // the deployed Lambda asset.
+          for (const file of pm.workspaceFiles) {
+            fs.rmSync(path.join(outputDir, file), { force: true });
           }
         }
 
@@ -179,10 +191,15 @@ export class Bundling implements cdk.BundlingOptions {
   }
 
   private shell(cmd: string, cwd: string): void {
-    const result = spawnSync('bash', ['-c', cmd], {
+    // Run through the platform default shell (`shell: true`) so command hooks
+    // work on Windows (cmd.exe) as well as POSIX systems, rather than hardcoding
+    // `bash`, which is frequently absent on Windows and minimal containers.
+    const result = spawnSync(cmd, [], {
       env: process.env,
       stdio: ['ignore', 'inherit', 'inherit'],
       cwd,
+      shell: true,
+      timeout: this.props.timeout,
     });
     if (result.error) {
       throw result.error;

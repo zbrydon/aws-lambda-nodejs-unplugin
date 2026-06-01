@@ -153,10 +153,12 @@ describe('Bundling.local.tryBundle', () => {
       );
       bundling.local.tryBundle(outputDir, bundling);
 
-      const bashIdx = order.indexOf('bash');
+      // Command hooks now run via the platform shell, so the spawned command is
+      // the hook string itself rather than a literal 'bash'.
+      const hookIdx = order.indexOf('echo before');
       const nodeIdx = order.indexOf('node');
-      expect(bashIdx).toBeGreaterThanOrEqual(0);
-      expect(nodeIdx).toBeGreaterThan(bashIdx);
+      expect(hookIdx).toBeGreaterThanOrEqual(0);
+      expect(nodeIdx).toBeGreaterThan(hookIdx);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -183,8 +185,8 @@ describe('Bundling.local.tryBundle', () => {
       bundling.local.tryBundle(outputDir, bundling);
 
       const nodeIdx = order.indexOf('node');
-      const lastBashIdx = order.lastIndexOf('bash');
-      expect(lastBashIdx).toBeGreaterThan(nodeIdx);
+      const afterHookIdx = order.lastIndexOf('echo after');
+      expect(afterHookIdx).toBeGreaterThan(nodeIdx);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -283,12 +285,8 @@ describe('Bundling.local.tryBundle', () => {
 
   it('runs beforeInstall hook before installing nodeModules', () => {
     const order: string[] = [];
-    spawnSyncMock.mockImplementation((cmd, args) => {
-      if (cmd === 'bash') {
-        order.push(`bash:${(args as string[]).join(' ')}`);
-      } else {
-        order.push(String(cmd));
-      }
+    spawnSyncMock.mockImplementation((cmd) => {
+      order.push(String(cmd));
       return makeSuccessResult();
     });
 
@@ -310,6 +308,22 @@ describe('Bundling.local.tryBundle', () => {
       const pmIdx = order.indexOf('pnpm');
       expect(beforeInstallIdx).toBeGreaterThanOrEqual(0);
       expect(pmIdx).toBeGreaterThan(beforeInstallIdx);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes install-only config files (e.g. .npmrc) from the asset after install', () => {
+    // .npmrc commonly holds registry auth tokens. It is copied into the output
+    // dir for the install step, but must not remain in the deployed asset.
+    fs.writeFileSync(path.join(tmpDir, '.npmrc'), '//registry.npmjs.org/:_authToken=secret');
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
+      bundling.local.tryBundle(outputDir, bundling);
+
+      expect(fs.existsSync(path.join(outputDir, '.npmrc'))).toBe(false);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -425,7 +439,7 @@ describe('Bundling.local.tryBundle', () => {
 
   it('rethrows shell spawn error from commandHook', () => {
     spawnSyncMock.mockImplementation((cmd) => {
-      if (cmd === 'bash') {
+      if (cmd === 'echo hook') {
         return makeSpawnError(new Error('HOOK_ENOENT'));
       }
       return makeSuccessResult();
@@ -450,7 +464,7 @@ describe('Bundling.local.tryBundle', () => {
 
   it('throws ValidationError when command hook exits non-zero', () => {
     spawnSyncMock.mockImplementation((cmd) => {
-      if (cmd === 'bash') {
+      if (cmd === 'npm run prepare') {
         return makeErrorResult(1);
       }
       return makeSuccessResult();
@@ -475,7 +489,7 @@ describe('Bundling.local.tryBundle', () => {
 
   it('includes signal name in error when command hook is killed by signal', () => {
     spawnSyncMock.mockImplementation((cmd) => {
-      if (cmd === 'bash') {
+      if (cmd === 'npm run prepare') {
         return {
           status: null,
           error: undefined,
