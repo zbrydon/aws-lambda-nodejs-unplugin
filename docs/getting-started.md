@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js >= 24.14.0
+- Node.js >= 24.14.0. This is a deliberately high floor: the bundling driver and bridge scripts rely on a recent Node (including native TypeScript support for `.ts`/`.mts` config files). Run `cdk synth`/`deploy` on Node 24.14.0 or newer.
 - AWS CDK v2 (`aws-cdk-lib >= 2.130.0`, `constructs ^10.0.0`)
 - A bundler installed as a dev dependency (see [Bundler configs](bundlers.md))
 

@@ -29,6 +29,9 @@ const LOCK_FILE_PM: [string, PackageManagerName][] = [
   [LockFile.NPM, 'npm'],
 ];
 
+/** Lock-file names in precedence order. Single source for lock-file discovery. */
+export const LOCK_FILE_NAMES: string[] = LOCK_FILE_PM.map(([file]) => file);
+
 /** Workspace-config files to copy from the source repo into the asset output dir. */
 export const WORKSPACE_FILES: Record<PackageManagerName, string[]> = {
   pnpm: ['pnpm-workspace.yaml', '.npmrc', '.pnpmfile.cjs', '.pnpmfile.mjs'],
@@ -133,6 +136,8 @@ const getLockFile = (name: PackageManagerName, projectRoot: string): string => {
       if (fs.existsSync(path.join(projectRoot, LockFile.BUN))) {
         return LockFile.BUN;
       }
+      // Neither present (e.g. bun came from the packageManager field): default to
+      // the modern text lock file name.
       return LockFile.BUN_LOCK;
     default:
       return LockFile.NPM;
@@ -165,6 +170,8 @@ const buildInstallCommand = (
       // Use `npm ci` only when package-lock.json is present; it requires the
       // lock file and will fail when npm was detected via the fallback path
       // (no lock file found). Fall back to `npm install` in that case.
+      // Assumes the lock file copied into the install dir is package-lock.json,
+      // which holds whenever npm is the detected package manager.
       const hasLockFile = fs.existsSync(path.join(projectRoot, LockFile.NPM));
       return hasLockFile ? [...runner, 'ci'] : [...runner, 'install'];
     }
@@ -192,6 +199,10 @@ const buildInfo = (
  * entries for packages in nodeModules. Relevant patch files are copied to
  * outputDir. Entries for packages not being installed are stripped to avoid
  * ERR_PNPM_UNUSED_PATCH.
+ *
+ * This is an intentionally line-oriented matcher targeting the flat
+ * `patchedDependencies:` block pnpm writes; it is not a general YAML parser and
+ * does not handle nested or flow-style content.
  */
 const filterPnpmWorkspaceYaml = (
   content: string,

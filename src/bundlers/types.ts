@@ -1,6 +1,8 @@
+import type { SupportedBundler } from '../types.ts';
+
 export interface BundlerAdapter {
-  /** Bundler name matching SupportedBundler. */
-  readonly name: string;
+  /** Bundler name. */
+  readonly name: SupportedBundler;
   /**
    * Absolute path to the pre-built ESM bridge script for this bundler.
    *

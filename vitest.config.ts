@@ -24,11 +24,15 @@ const fixBridgeSourcePaths = {
 export default defineConfig({
   ssr: {
     resolve: {
-      conditions: ['@seek/aws-lambda-nodejs-unplugin/source'],
+      conditions: ['aws-lambda-nodejs-unplugin/source'],
     },
   },
   test: {
     coverage: {
+      // The .mts bridge entrypoints (src/bridges/*.mts) are intentionally not
+      // matched here: they execute only inside spawned `node` subprocesses at
+      // bundle time, so V8 coverage cannot instrument them. They are exercised
+      // end-to-end by the integration project instead.
       include: ['**/*.ts'],
       exclude: [
         ...defaultExclude,

@@ -11,14 +11,24 @@ if (!userConfig || typeof userConfig !== 'object') {
   throw new Error(`Config file must export a default config object: ${configPath}`);
 }
 
-// Support rolldownOptions (Vite 6+) and the deprecated rollupOptions alias.
+// A Vite build can be backed by either Rollup (build.rollupOptions) or
+// Rolldown (build.rolldownOptions) depending on the installed Vite flavour.
+// Read whichever the user supplied so their output config is preserved.
 const rollOptions = userConfig.build?.rolldownOptions ?? userConfig.build?.rollupOptions;
 const rawOutput = rollOptions?.output;
 const baseOutput = Array.isArray(rawOutput) ? rawOutput[0] : rawOutput;
 
-// Destructure both option keys out of the user build config so we can supply
-// a single canonical rolldownOptions without the two aliases conflicting.
+// Strip both keys from the user build config so the canonical merged options
+// below are the only ones present.
 const { rollupOptions: _ruo, rolldownOptions: _rdo, ...restBuild } = userConfig.build ?? {};
+
+const mergedRollOptions = {
+  ...rollOptions,
+  output: {
+    ...baseOutput,
+    entryFileNames: 'index.js',
+  },
+};
 
 await build({
   ...userConfig,
@@ -27,13 +37,11 @@ await build({
     ssr: entry,
     outDir: outputDir,
     emptyOutDir: false,
-    rolldownOptions: {
-      ...rollOptions,
-      output: {
-        ...baseOutput,
-        entryFileNames: 'index.js',
-      },
-    },
+    // Emit under both keys so the index.js / format override applies whether the
+    // resolved Vite is Rollup-based (rollupOptions) or Rolldown-based
+    // (rolldownOptions). Each flavour reads its own key and ignores the other.
+    rollupOptions: mergedRollOptions,
+    rolldownOptions: mergedRollOptions,
   },
 });
 // Vite 6 SSR defaults to 'es' when no format is specified.

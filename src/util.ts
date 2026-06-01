@@ -3,6 +3,11 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { ValidationError } from './errors.ts';
 
+/**
+ * Mirrors the V8 `NodeJS.CallSite` stack-frame API. Re-declared locally rather
+ * than relying on the `@types/node` shape so the structural validation in
+ * `isCallSite` stays self-contained.
+ */
 export interface CallSite {
   getThis(): unknown;
   getTypeName(): string | null;

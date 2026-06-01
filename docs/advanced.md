@@ -24,7 +24,7 @@ new NodejsFunction(this, 'image-processor', {
 
 After bundling completes, the driver:
 
-1. Looks up each package in your `package.json` (`dependencies`, `devDependencies`, or `peerDependencies`). Falls back to the installed package's own `package.json` for transitive deps.
+1. Looks up each package in the nearest `package.json` found by walking up from the entry file's directory (`dependencies`, `devDependencies`, or `peerDependencies`). In a monorepo this is the per-package manifest, which may differ from `projectRoot/package.json` used for package-manager detection. Falls back to the installed package's own `package.json` for transitive deps.
 2. Writes a minimal `package.json` with those pinned versions into the output directory.
 3. Copies workspace config files (e.g. `pnpm-workspace.yaml`, `.npmrc`) so workspace protocols and catalogs resolve correctly.
 4. Copies the lock file.

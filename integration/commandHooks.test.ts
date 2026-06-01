@@ -104,6 +104,42 @@ it('a failing beforeBundling hook throws ValidationError with the command in the
   }
 });
 
+it('beforeInstall hook runs before nodeModules are installed', () => {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-hooks-install-'));
+  try {
+    const bundling = new Bundling({
+      ...baseBundlingProps,
+      entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
+      nodeModules: ['zod'],
+      commandHooks: {
+        beforeBundling: () => [],
+        afterBundling: () => [],
+        // The hook asserts node_modules does not exist yet, proving it runs
+        // before the install step, then writes a sentinel.
+        beforeInstall: (_inputDir, outDir) => [
+          `test ! -e ${path.join(outDir, 'node_modules')} && touch ${path.join(outDir, 'before-install-sentinel.txt')}`,
+        ],
+      },
+    });
+
+    expect(
+      bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
+    ).toBe(true);
+
+    expect(
+      fs.existsSync(path.join(outputDir, 'before-install-sentinel.txt')),
+      'beforeInstall sentinel should exist, confirming the hook ran before install',
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
+      'zod should be installed after the beforeInstall hook',
+    ).toBe(true);
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+}, 120_000);
+
 it('a failing afterBundling hook throws ValidationError', () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-hooks-fail-after-'));
   try {

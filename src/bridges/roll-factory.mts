@@ -41,5 +41,10 @@ export const runRollBridge = async <TInput, TOutput>(
     await bundle.write(makeOutputOptions(o));
   }
   await bundle.close();
-  writeBundleMeta(outputDir, baseRaw.format);
+  // Rollup and Rolldown both default output.format to 'es' when it is omitted,
+  // so a missing format means an ESM bundle. Default to 'es' here rather than
+  // recording null, otherwise the parent would skip writing `type: module` and
+  // the ESM handler would fail to load at runtime. Format detection uses the
+  // first (base) output only; the Lambda handler is always a single entry.
+  writeBundleMeta(outputDir, baseRaw.format ?? 'es');
 };

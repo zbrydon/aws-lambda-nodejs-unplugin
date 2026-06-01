@@ -19,6 +19,12 @@ export interface BundlingProps extends BundlingOptions {
   projectRoot: string;
 }
 
+/** Human-readable description of how a spawned process terminated. */
+const describeExit = (result: { signal: NodeJS.Signals | null; status: number | null }): string =>
+  result.signal != null
+    ? `killed by signal ${result.signal}`
+    : `exited with status ${result.status}`;
+
 /**
  * CDK bundling implementation that delegates to the user-supplied bundler.
  *
@@ -50,7 +56,6 @@ export class Bundling implements cdk.BundlingOptions {
     return {
       tryBundle: (outputDir: string): boolean => {
         const adapter = getBundler(props.bundler);
-        const pm = detectPackageManager(props.projectRoot);
 
         // 1. beforeBundling hooks
         for (const cmd of props.commandHooks?.beforeBundling(props.projectRoot, outputDir) ?? []) {
@@ -79,25 +84,28 @@ export class Bundling implements cdk.BundlingOptions {
           throw bundleResult.error;
         }
         if (bundleResult.status !== 0) {
-          const detail =
-            bundleResult.signal != null
-              ? `killed by signal ${bundleResult.signal}`
-              : `exited with status ${bundleResult.status}`;
-          throw new ValidationError(`Bundler '${props.bundler}' ${detail}.`);
+          throw new ValidationError(`Bundler '${props.bundler}' ${describeExit(bundleResult)}.`);
         }
 
         const metaPath = path.join(outputDir, '.lambda-bundle-meta');
         let isEsm = false;
         if (fs.existsSync(metaPath)) {
-          const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-          const format =
-            isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : null;
-          isEsm = format === 'esm' || format === 'es';
-          fs.unlinkSync(metaPath);
+          // Always remove the meta file, even if parsing throws, so it never
+          // leaks into the bundled asset.
+          try {
+            const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const format =
+              isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : null;
+            isEsm = format === 'esm' || format === 'es';
+          } finally {
+            fs.unlinkSync(metaPath);
+          }
         }
 
         // 3. Install nodeModules
         if (props.nodeModules?.length) {
+          const pm = detectPackageManager(props.projectRoot);
+
           const pkgJsonPath = findUp('package.json', path.dirname(props.entry));
           if (!pkgJsonPath) {
             throw new ValidationError(
@@ -146,11 +154,9 @@ export class Bundling implements cdk.BundlingOptions {
             throw installResult.error;
           }
           if (installResult.status !== 0) {
-            const detail =
-              installResult.signal != null
-                ? `killed by signal ${installResult.signal}`
-                : `exited with status ${installResult.status}`;
-            throw new ValidationError(`Package manager '${pm.name}' install ${detail}.`);
+            throw new ValidationError(
+              `Package manager '${pm.name}' install ${describeExit(installResult)}.`,
+            );
           }
         }
 
@@ -182,11 +188,7 @@ export class Bundling implements cdk.BundlingOptions {
       throw result.error;
     }
     if (result.status !== 0) {
-      const detail =
-        result.signal != null
-          ? `killed by signal ${result.signal}`
-          : `exited with status ${result.status}`;
-      throw new ValidationError(`Command hook '${cmd}' ${detail}.`);
+      throw new ValidationError(`Command hook '${cmd}' ${describeExit(result)}.`);
     }
   }
 }

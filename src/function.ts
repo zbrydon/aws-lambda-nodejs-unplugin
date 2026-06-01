@@ -5,7 +5,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import type { Construct } from 'constructs';
 import { Bundling } from './bundling.ts';
 import { ValidationError } from './errors.ts';
-import { LockFile } from './package-manager.ts';
+import { LOCK_FILE_NAMES } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
 import { callsites, findUpMultiple } from './util.ts';
 
@@ -85,8 +85,6 @@ export class NodejsFunction extends lambda.Function {
   }
 }
 
-const LOCK_FILES = [LockFile.PNPM, LockFile.YARN, LockFile.BUN_LOCK, LockFile.BUN, LockFile.NPM];
-
 const findLockFile = (depsLockFilePath?: string): string => {
   if (depsLockFilePath) {
     if (!fs.existsSync(depsLockFilePath)) {
@@ -98,7 +96,7 @@ const findLockFile = (depsLockFilePath?: string): string => {
     return path.resolve(depsLockFilePath);
   }
 
-  const lockFiles = findUpMultiple(LOCK_FILES);
+  const lockFiles = findUpMultiple(LOCK_FILE_NAMES);
   if (lockFiles.length === 0) {
     throw new ValidationError(
       'Cannot find a package lock file. Please specify it with `depsLockFilePath`.',
