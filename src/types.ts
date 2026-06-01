@@ -1,13 +1,4 @@
-export type SupportedBundler =
-  | 'esbuild'
-  | 'vite'
-  | 'rollup'
-  | 'rolldown'
-  | 'webpack'
-  | 'rspack'
-  | 'farm';
-
-export const SUPPORTED_BUNDLERS: SupportedBundler[] = [
+export const SUPPORTED_BUNDLERS = [
   'esbuild',
   'vite',
   'rollup',
@@ -15,7 +6,9 @@ export const SUPPORTED_BUNDLERS: SupportedBundler[] = [
   'webpack',
   'rspack',
   'farm',
-];
+] as const;
+
+export type SupportedBundler = (typeof SUPPORTED_BUNDLERS)[number];
 
 export interface ICommandHooks {
   beforeBundling(inputDir: string, outputDir: string): string[];

@@ -561,6 +561,30 @@ describe('NodejsFunction', () => {
     expect(errorMessage).toContain('function.test');
   });
 
+  const s3KeyForAssetHash = (assetHash: string): string => {
+    const scope = makeScope();
+    // oxlint-disable-next-line no-new
+    new NodejsFunction(scope, 'my-handler', {
+      entry: entryFile,
+      depsLockFilePath: lockFile,
+      bundling: {
+        bundler: 'esbuild',
+        bundlerConfig: path.join(tmpDir, 'build.mjs'),
+        assetHash,
+      },
+    });
+    const fns = Template.fromStack(scope).findResources('AWS::Lambda::Function');
+    const [fn] = Object.values(fns) as { Properties: { Code: { S3Key: string } } }[];
+    return fn!.Properties.Code.S3Key;
+  };
+
+  it('uses a custom assetHash to produce a deterministic, content-independent asset key', () => {
+    // The same custom hash yields the same S3 key regardless of source content,
+    // and a different custom hash yields a different key (CUSTOM hash type).
+    expect(s3KeyForAssetHash('hash-one')).toBe(s3KeyForAssetHash('hash-one'));
+    expect(s3KeyForAssetHash('hash-one')).not.toBe(s3KeyForAssetHash('hash-two'));
+  });
+
   it('auto-detect: throws ValidationError when defining callsite has a null filename', () => {
     // Simulate a native/eval frame immediately after the NodejsFunction frame.
     vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([

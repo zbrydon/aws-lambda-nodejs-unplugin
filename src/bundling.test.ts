@@ -218,10 +218,11 @@ describe('Bundling.local.tryBundle', () => {
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
-      // corepack NOT available so no corepack prefix
-      spawnSyncMock
-        .mockReturnValueOnce(makeErrorResult(1)) // corepack check → not available
-        .mockReturnValue(makeSuccessResult()); // all other spawns
+      // corepack NOT available so no corepack prefix. Keyed on the command so it
+      // is independent of the order in which the bundler/corepack/install spawn.
+      spawnSyncMock.mockImplementation((cmd) =>
+        cmd === 'corepack' ? makeErrorResult(1) : makeSuccessResult(),
+      );
 
       const bundling = new Bundling(makeProps({ nodeModules: ['pino'], projectRoot: tmpDir }));
       bundling.local.tryBundle(outputDir, bundling);
@@ -651,6 +652,26 @@ describe('Bundling.local.tryBundle', () => {
       bundling.local.tryBundle(outputDir, bundling);
 
       expect(fs.existsSync(path.join(outputDir, 'package.json'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes .lambda-bundle-meta even when its contents are not valid JSON', () => {
+    spawnSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'node') {
+        const outDir = (args as string[])[3]!;
+        fs.writeFileSync(path.join(outDir, '.lambda-bundle-meta'), 'not-json{');
+      }
+      return makeSuccessResult();
+    });
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(SyntaxError);
+      // The malformed meta must still be cleaned up so it never leaks into the asset.
+      expect(fs.existsSync(path.join(outputDir, '.lambda-bundle-meta'))).toBe(false);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }

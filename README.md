@@ -60,7 +60,7 @@ export default {
 export default {
   build: {
     target: 'node24',
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         format: 'cjs',
         entryFileNames: 'index.js',

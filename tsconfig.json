@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "customConditions": ["@seek/aws-lambda-nodejs-unplugin/source"],
+    "customConditions": ["aws-lambda-nodejs-unplugin/source"],
     "rootDir": ".",
     "lib": ["ES2024"],
     "outDir": "lib",

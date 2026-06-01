@@ -17,7 +17,7 @@ export default defineConfig([
       legacyCjs: false,
     },
     exports: {
-      devExports: '@seek/aws-lambda-nodejs-unplugin/source',
+      devExports: 'aws-lambda-nodejs-unplugin/source',
     },
     publint: true,
     attw: true,

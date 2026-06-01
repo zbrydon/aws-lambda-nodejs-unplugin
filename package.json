@@ -21,13 +21,13 @@
   "types": "./dist/index.d.cts",
   "imports": {
     "#src/*": {
-      "@seek/aws-lambda-nodejs-unplugin/source": "./src/*",
+      "aws-lambda-nodejs-unplugin/source": "./src/*",
       "default": "./dist/*"
     }
   },
   "exports": {
     ".": {
-      "@seek/aws-lambda-nodejs-unplugin/source": "./src/index.ts",
+      "aws-lambda-nodejs-unplugin/source": "./src/index.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },

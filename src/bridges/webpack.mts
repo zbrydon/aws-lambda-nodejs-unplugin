@@ -34,4 +34,6 @@ await new Promise<void>((resolve, reject) => {
     resolve();
   });
 });
+// webpack only emits ESM when output.module is true (it also requires
+// experiments.outputModule), so output.module is the authoritative signal.
 writeBundleMeta(outputDir, userConfig.output?.module === true ? 'esm' : undefined);
