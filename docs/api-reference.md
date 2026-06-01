@@ -63,8 +63,11 @@ handler?: string  // default: 'handler'
 
 Name of the exported handler function.
 
-- A bare name (no dot) is prefixed with `index.`: `handler` becomes `index.handler`.
-- A dotted name is used as-is: `myFile.myFunction` stays `myFile.myFunction`.
+The bundle is always emitted as a single `index` file (`index.js` for CommonJS, `index.mjs` for ESM), so the Lambda handler is always `index.<functionName>` and only the exported function name matters:
+
+- A bare name is prefixed with `index.`: `handler` becomes `index.handler`.
+- Any file/path prefix is discarded and re-anchored to `index.`: `myFile.myFunction` becomes `index.myFunction`.
+- The function name must be a valid JavaScript identifier; an empty or malformed handler throws a `ValidationError` at synth time.
 
 #### `runtime`
 

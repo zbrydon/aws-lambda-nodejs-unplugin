@@ -1,5 +1,5 @@
 import { getArgs } from './get-args.ts';
-import { writeBundleMeta } from './write-meta.ts';
+import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 export type RollBundler<TInput, TOutput> = (options: TInput) => Promise<{
   write(options: TOutput): Promise<unknown>;
@@ -23,14 +23,23 @@ export const runRollBridge = async <TInput, TOutput>(
   };
 
   const rawOutput = userConfig.output;
-  const baseRaw = Array.isArray(rawOutput) ? rawOutput[0] : (rawOutput ?? {});
+  // Fall back to {} in both branches so an explicit empty `output: []` does not
+  // leave baseRaw undefined (which would crash the `baseRaw.format` read below).
+  const baseRaw = (Array.isArray(rawOutput) ? rawOutput[0] : rawOutput) ?? {};
   const extraRaw = Array.isArray(rawOutput) ? rawOutput.slice(1) : [];
+
+  // Rollup and Rolldown both default output.format to 'es' when it is omitted,
+  // so a missing format means an ESM bundle. Default to 'es' here rather than
+  // recording null, otherwise the parent would skip writing `type: module` and
+  // the ESM handler would fail to load at runtime. Format detection uses the
+  // first (base) output only; the Lambda handler is always a single entry.
+  const format: string = baseRaw.format ?? 'es';
 
   const makeOutputOptions = (o: object) =>
     ({
       ...o,
       dir: outputDir,
-      entryFileNames: 'index.js',
+      entryFileNames: entryFileName(format),
     }) as TOutput;
 
   const baseOutputOptions = makeOutputOptions(baseRaw);
@@ -41,10 +50,5 @@ export const runRollBridge = async <TInput, TOutput>(
     await bundle.write(makeOutputOptions(o));
   }
   await bundle.close();
-  // Rollup and Rolldown both default output.format to 'es' when it is omitted,
-  // so a missing format means an ESM bundle. Default to 'es' here rather than
-  // recording null, otherwise the parent would skip writing `type: module` and
-  // the ESM handler would fail to load at runtime. Format detection uses the
-  // first (base) output only; the Lambda handler is always a single entry.
-  writeBundleMeta(outputDir, baseRaw.format ?? 'es');
+  writeBundleMeta(outputDir, format);
 };

@@ -11,6 +11,25 @@ Because the config is a plain object export, the same file works for local dev b
 
 ---
 
+## Output handling
+
+The driver respects **how** your config bundles (format, target, sourcemaps, minification, externals, plugins) but always controls **where the output goes and what the entry file is named**. This is deliberate: CDK owns the asset staging directory (a fresh temp dir per synthesis that your config cannot know), and the Lambda handler string is derived from the entry filename, so the two must be kept in agreement.
+
+Specifically, for the single Lambda entry point the driver overrides:
+
+- **Output directory** — set to CDK's asset staging directory.
+- **Entry filename** — set to `index.js` for CommonJS output, or **`index.mjs` for ESM output**. The `.mjs` extension lets the Lambda runtime load the handler as an ES module from the extension alone (matching `aws_lambda_nodejs.NodejsFunction`). For ESM, a `package.json` containing `{ "type": "module" }` is also written, so any secondary code-split `.js` chunks are treated as ES modules too.
+
+The Lambda **handler** is always `index.<functionName>` regardless of output naming — the runtime resolves the `.js`/`.mjs` extension. Because the file part is fixed, only the exported function name in the `handler` prop is significant; a `handler` like `'myFile.handler'` is reduced to `index.handler`.
+
+Consequences worth knowing:
+
+- Any `entryFileNames` / `output.filename` / farm `entryFilename` you set is **overridden** — set it only for local dev builds.
+- **Multiple entry points are not supported**; the driver forces a single entry.
+- **Code splitting that renames or removes the entry chunk is not supported.** esbuild `splitting` is rejected with a clear error because it is incompatible with a single `outfile`. Rollup/Rolldown/Vite `preserveModules` likewise breaks the single-`index` assumption and should not be used for a Lambda handler.
+
+---
+
 ## esbuild
 
 **Install:**

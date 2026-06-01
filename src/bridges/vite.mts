@@ -1,7 +1,7 @@
 import { build } from 'vite';
 
 import { getArgs } from './get-args.ts';
-import { writeBundleMeta } from './write-meta.ts';
+import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
 
@@ -17,6 +17,8 @@ if (!userConfig || typeof userConfig !== 'object') {
 const rollOptions = userConfig.build?.rolldownOptions ?? userConfig.build?.rollupOptions;
 const rawOutput = rollOptions?.output;
 const baseOutput = Array.isArray(rawOutput) ? rawOutput[0] : rawOutput;
+// Vite 6 SSR defaults to 'es' when no format is specified.
+const format: string = baseOutput?.format ?? 'es';
 
 // Strip both keys from the user build config so the canonical merged options
 // below are the only ones present.
@@ -26,7 +28,7 @@ const mergedRollOptions = {
   ...rollOptions,
   output: {
     ...baseOutput,
-    entryFileNames: 'index.js',
+    entryFileNames: entryFileName(format),
   },
 };
 
@@ -44,5 +46,4 @@ await build({
     rolldownOptions: mergedRollOptions,
   },
 });
-// Vite 6 SSR defaults to 'es' when no format is specified.
-writeBundleMeta(outputDir, baseOutput?.format ?? 'es');
+writeBundleMeta(outputDir, format);

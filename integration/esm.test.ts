@@ -9,14 +9,15 @@ import { SUPPORTED_BUNDLERS } from '../src/types.ts';
 import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
 /**
- * Integration tests that verify ESM output bundles receive `"type":"module"`
- * in the output package.json so Node.js loads index.js as ES module code.
+ * Integration tests that verify ESM output bundles are emitted as `index.mjs`
+ * and receive `"type":"module"` in the output package.json (so any secondary
+ * code-split `.js` chunks are also treated as ES modules).
  *
  * For each bundler we:
  *   1. Run the bundler against the ESM fixture config.
- *   2. Assert the output directory contains index.js.
+ *   2. Assert the output directory contains index.mjs.
  *   3. Assert package.json exists with `"type":"module"`.
- *   4. Load index.js via dynamic import and invoke handler to confirm it executes.
+ *   4. Load index.mjs via dynamic import and invoke handler to confirm it executes.
  */
 /**
  * T1: verify that ESM output combined with nodeModules produces a package.json
@@ -38,8 +39,8 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
       bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
     ).toBe(true);
 
-    const indexPath = path.join(outputDir, 'index.js');
-    expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
+    const indexPath = path.join(outputDir, 'index.mjs');
+    expect(fs.existsSync(indexPath), `index.mjs missing in ${outputDir}`).toBe(true);
 
     const pkgJsonPath = path.join(outputDir, 'package.json');
     expect(fs.existsSync(pkgJsonPath), `package.json missing`).toBe(true);
@@ -82,8 +83,8 @@ it.each(SUPPORTED_BUNDLERS)(
         bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
       ).toBe(true);
 
-      const indexPath = path.join(outputDir, 'index.js');
-      expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
+      const indexPath = path.join(outputDir, 'index.mjs');
+      expect(fs.existsSync(indexPath), `index.mjs missing in ${outputDir}`).toBe(true);
 
       const pkgJsonPath = path.join(outputDir, 'package.json');
       expect(fs.existsSync(pkgJsonPath), `package.json missing in ${outputDir}`).toBe(true);

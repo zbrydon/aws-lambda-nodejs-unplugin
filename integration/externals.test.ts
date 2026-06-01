@@ -100,8 +100,8 @@ it.each(['webpack', 'rspack'] as const)(
         bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
       ).toBe(true);
 
-      const indexPath = path.join(outputDir, 'index.js');
-      expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
+      const indexPath = path.join(outputDir, 'index.mjs');
+      expect(fs.existsSync(indexPath), `index.mjs missing in ${outputDir}`).toBe(true);
 
       const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8')) as {
         type?: string;

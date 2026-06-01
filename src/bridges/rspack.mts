@@ -1,7 +1,7 @@
 import { rspack } from '@rspack/core';
 import type { Configuration } from '@rspack/core';
 import { getArgs } from './get-args.ts';
-import { writeBundleMeta } from './write-meta.ts';
+import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
 
@@ -11,13 +11,17 @@ if (!userConfig || typeof userConfig !== 'object') {
   throw new Error(`Config file must export a default config object: ${configPath}`);
 }
 
+// rspack only emits ESM when output.module is true (it also requires
+// experiments.outputModule), so output.module is the authoritative signal.
+const format = userConfig.output?.module === true ? 'esm' : undefined;
+
 const finalConfig: Configuration = {
   ...userConfig,
   entry,
   output: {
     ...userConfig.output,
     path: outputDir,
-    filename: 'index.js',
+    filename: entryFileName(format),
   },
 };
 
@@ -36,6 +40,4 @@ await new Promise<void>((resolve, reject) => {
     compiler.close(() => resolve());
   });
 });
-// rspack only emits ESM when output.module is true (it also requires
-// experiments.outputModule), so output.module is the authoritative signal.
-writeBundleMeta(outputDir, userConfig.output?.module === true ? 'esm' : undefined);
+writeBundleMeta(outputDir, format);

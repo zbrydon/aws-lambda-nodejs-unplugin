@@ -67,7 +67,8 @@ export class NodejsFunction extends lambda.Function {
     const entry = path.resolve(findEntry(id, props.entry));
     const depsLockFilePath = findLockFile(props.depsLockFilePath);
     const projectRoot = path.resolve(props.projectRoot ?? path.dirname(depsLockFilePath));
-    const handler = props.handler ?? 'handler';
+
+    const handlerFn = resolveHandlerFn(props.handler);
 
     super(scope, id, {
       ...props,
@@ -80,10 +81,33 @@ export class NodejsFunction extends lambda.Function {
         depsLockFilePath,
         projectRoot,
       }),
-      handler: handler.includes('.') ? handler : `index.${handler}`,
+      handler: `index.${handlerFn}`,
     });
   }
 }
+
+/**
+ * Resolve the exported handler function name.
+ *
+ * Every bridge emits the bundle as a single `index.js`, so only the exported
+ * function name is meaningful and the Lambda handler is always `index.<fn>`.
+ * Lambda splits a handler on the LAST dot (everything before is the module path,
+ * everything after is the export), so any `file.` / `path/file.` prefix the
+ * caller supplies can only point at a file that does not exist in the asset and
+ * is discarded. The remaining segment is validated as a JS identifier so a
+ * malformed handler fails at synth time rather than with a runtime
+ * `ImportModuleError`.
+ */
+const resolveHandlerFn = (handler?: string): string => {
+  const handlerName = (handler ?? 'handler').trim();
+  const handlerFn = handlerName.slice(handlerName.lastIndexOf('.') + 1);
+  if (!/^[A-Za-z_$][\w$]*$/.test(handlerFn)) {
+    throw new ValidationError(
+      `Invalid handler '${handler}'. Expected an exported function name, optionally prefixed with a file part (e.g. 'handler' or 'index.handler').`,
+    );
+  }
+  return handlerFn;
+};
 
 const findLockFile = (depsLockFilePath?: string): string => {
   if (depsLockFilePath) {
@@ -114,11 +138,16 @@ const ENTRY_EXTENSIONS = ['.ts', '.js', '.mjs', '.mts', '.cts', '.cjs'];
 
 const findEntry = (id: string, entry?: string): string => {
   if (entry) {
-    if (!/\.(jsx?|tsx?|cjs|cts|mjs|mts)$/.test(entry)) {
+    // Keep the accepted extensions in lock-step with ENTRY_EXTENSIONS so an
+    // explicitly-passed entry and an auto-detected one support the same set.
+    if (!/\.(js|ts|mjs|mts|cts|cjs)$/.test(entry)) {
       throw new ValidationError('Only JavaScript or TypeScript entry files are supported.');
     }
     if (!fs.existsSync(entry)) {
       throw new ValidationError(`Cannot find entry file at ${entry}.`);
+    }
+    if (!fs.statSync(entry).isFile()) {
+      throw new ValidationError(`Entry path ${entry} is not a file.`);
     }
     return entry;
   }
