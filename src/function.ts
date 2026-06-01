@@ -109,7 +109,6 @@ const findLockFile = (depsLockFilePath?: string): string => {
       `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
     );
   }
-  // Guaranteed by the length checks above; noUncheckedIndexedAccess requires the cast.
   return lockFiles[0] as string;
 };
 

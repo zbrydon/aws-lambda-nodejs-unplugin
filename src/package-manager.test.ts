@@ -18,9 +18,6 @@ vi.mock('child_process', async (importOriginal) => {
 
 const spawnSyncMock = vi.mocked(spawnSync);
 
-// ---------------------------------------------------------------------------
-// isCorepackAvailable
-// ---------------------------------------------------------------------------
 describe('isCorepackAvailable', () => {
   it('returns true when corepack exits 0', () => {
     spawnSyncMock.mockReturnValueOnce({
@@ -62,9 +59,6 @@ describe('isCorepackAvailable', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// detectPackageManager
-// ---------------------------------------------------------------------------
 describe('detectPackageManager', () => {
   let tmpDir: string;
 
@@ -292,9 +286,6 @@ describe('detectPackageManager', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// copyWorkspaceFiles
-// ---------------------------------------------------------------------------
 describe('copyWorkspaceFiles', () => {
   let srcDir: string;
   let destDir: string;
@@ -367,20 +358,6 @@ describe('copyWorkspaceFiles', () => {
     fs.mkdirSync(path.join(srcDir, 'patches'));
     fs.writeFileSync(path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'), 'diff');
 
-    spawnSyncMock.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      pid: 1,
-      output: [],
-      stdout: Buffer.from(
-        JSON.stringify({
-          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
-        }),
-      ),
-      stderr: Buffer.from(''),
-      signal: null,
-    });
-
     const pnpmInfo = {
       name: 'pnpm' as const,
       version: undefined,
@@ -399,7 +376,6 @@ describe('copyWorkspaceFiles', () => {
   });
 
   it('ignores packages not in nodeModules even when yaml has non-standard content', () => {
-    // pnpm config get parses the YAML itself; only valid entries appear in its output
     const workspaceContent = [
       'packages: []',
       'patchedDependencies:',
@@ -407,20 +383,6 @@ describe('copyWorkspaceFiles', () => {
       '  "@changesets/cli@2.31.0": patches/@changesets__cli@2.31.0.patch',
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
-
-    spawnSyncMock.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      pid: 1,
-      output: [],
-      stdout: Buffer.from(
-        JSON.stringify({
-          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
-        }),
-      ),
-      stderr: Buffer.from(''),
-      signal: null,
-    });
 
     const pnpmInfo = {
       name: 'pnpm' as const,
@@ -447,18 +409,6 @@ describe('copyWorkspaceFiles', () => {
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
     // Intentionally do NOT create the patch file in srcDir
-
-    spawnSyncMock.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      pid: 1,
-      output: [],
-      stdout: Buffer.from(
-        JSON.stringify({ 'zod@3.22.4': path.join(srcDir, 'patches/zod@3.22.4.patch') }),
-      ),
-      stderr: Buffer.from(''),
-      signal: null,
-    });
 
     const pnpmInfo = {
       name: 'pnpm' as const,
@@ -489,21 +439,6 @@ describe('copyWorkspaceFiles', () => {
     fs.mkdirSync(path.join(srcDir, 'patches'));
     fs.writeFileSync(path.join(srcDir, 'patches/zod@3.22.4.patch'), 'diff --zod');
     fs.writeFileSync(path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'), 'diff --cs');
-
-    spawnSyncMock.mockReturnValueOnce({
-      status: 0,
-      error: undefined,
-      pid: 1,
-      output: [],
-      stdout: Buffer.from(
-        JSON.stringify({
-          'zod@3.22.4': path.join(srcDir, 'patches/zod@3.22.4.patch'),
-          '@changesets/cli@2.31.0': path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'),
-        }),
-      ),
-      stderr: Buffer.from(''),
-      signal: null,
-    });
 
     const pnpmInfo = {
       name: 'pnpm' as const,

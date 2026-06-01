@@ -177,7 +177,7 @@ export default {
   },
   resolve: { extensions: ['.ts', '.js'] },
   output: {
-    filename: 'index.js',
+    // filename is always set to 'index.js' by the CDK bundling driver.
     library: { type: 'commonjs2' },
   },
   target: 'node',
@@ -218,7 +218,7 @@ export default {
   },
   resolve: { extensions: ['.ts', '.js'] },
   output: {
-    filename: 'index.js',
+    // filename is always set to 'index.js' by the CDK bundling driver.
     library: { type: 'commonjs2' },
   },
   target: 'node',
