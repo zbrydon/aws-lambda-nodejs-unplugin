@@ -27,6 +27,21 @@ export interface CallSite {
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/**
+ * Read and parse a JSON file, rethrowing malformed JSON as a ValidationError so
+ * callers surface a consistent, file-attributed error rather than a raw
+ * SyntaxError.
+ */
+export const parseJsonFile = (filePath: string): unknown => {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    // JSON.parse only ever throws a SyntaxError, so reading `.message` is safe.
+    throw new ValidationError(`Failed to parse ${filePath} as JSON: ${(err as Error).message}`);
+  }
+};
+
 /** Validates that an item from Error.prepareStackTrace has the expected CallSite shape. */
 export const isCallSite = (item: unknown): item is CallSite => {
   if (!isRecord(item)) {
@@ -50,9 +65,14 @@ export const callsites = (): CallSite[] => {
   // With prepareStackTrace overridden, V8 sets Error.stack to the return value of
   // the callback — a NodeJS.CallSite[] — rather than the usual formatted string.
   // TypeScript still types Error.stack as string | undefined; annotate as unknown
-  // and validate the shape before returning.
-  const stack: unknown = new Error().stack;
-  Error.prepareStackTrace = _prepareStackTrace;
+  // and validate the shape before returning. Restore in `finally` so the global
+  // override is never left in place even if capturing the stack throws.
+  let stack: unknown;
+  try {
+    stack = new Error().stack;
+  } finally {
+    Error.prepareStackTrace = _prepareStackTrace;
+  }
   /* c8 ignore next 3 -- V8 always returns an array via prepareStackTrace; guard is defensive */
   if (!Array.isArray(stack)) {
     return [];
@@ -159,7 +179,7 @@ const tryGetModuleVersionFromRequire = (mod: string, fromDir: string): string | 
  */
 export const extractDependencies = (pkgPath: string, modules: string[]): Record<string, string> => {
   const result: Record<string, string> = {};
-  const parsed: unknown = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const parsed: unknown = parseJsonFile(pkgPath);
   if (!isRecord(parsed)) {
     throw new ValidationError(`${pkgPath} does not contain a valid JSON object.`);
   }

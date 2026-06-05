@@ -29,6 +29,7 @@ After bundling completes, the driver:
 3. Copies workspace config files (e.g. `pnpm-workspace.yaml`, `.npmrc`) so workspace protocols and catalogs resolve correctly.
 4. Copies the lock file.
 5. Runs the detected package manager's install command.
+6. Removes the install-only workspace config files (including `.npmrc` / `.yarnrc.yml`, which may contain registry credentials) from the output directory so they never ship inside the deployed Lambda asset.
 
 ### Package manager detection
 
@@ -60,7 +61,7 @@ Each bundler has its own syntax for this. See [Bundler configs -- externals](bun
 
 ## commandHooks
 
-Use `commandHooks` to run shell commands (bash) at three points in the bundling pipeline:
+Use `commandHooks` to run shell commands at three points in the bundling pipeline:
 
 ```
 beforeBundling  ->  [bundler runs]  ->  [nodeModules install]  ->  afterBundling
@@ -91,9 +92,11 @@ new NodejsFunction(this, 'my-fn', {
 });
 ```
 
-Each method receives `inputDir` (project root) and `outputDir` (CDK asset staging dir) and must return an array of bash strings. Return `[]` to skip.
+Each method receives `inputDir` (project root) and `outputDir` (CDK asset staging dir) and must return an array of command strings. Return `[]` to skip.
 
-Commands run synchronously via `bash -c <cmd>` with the project root as the working directory. A non-zero exit throws a `ValidationError`. A spawn error (e.g. `ENOENT`) also throws.
+Commands run synchronously through the platform default shell (`cmd.exe` on Windows, `/bin/sh` on POSIX) with the project root as the working directory. A non-zero exit throws a `ValidationError`. A spawn error (e.g. `ENOENT`) also throws.
+
+> **Security note:** bundler config files are imported and command hooks are executed with the full privileges of the synth environment (typically CI, with cloud credentials). Treat both as trusted code. Use the `timeout` bundling option to bound how long any subprocess may run.
 
 ---
 

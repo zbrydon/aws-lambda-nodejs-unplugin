@@ -95,7 +95,10 @@ describe('NodejsFunction', () => {
     ).not.toThrow();
   });
 
-  it('uses fully-qualified handler if it contains a dot', () => {
+  it('re-anchors a dotted handler to index. since output is always index.js', () => {
+    // The bundle is always emitted as index.js, so a handler like
+    // "myFile.myFunction" would point at a non-existent file at runtime. Only the
+    // exported function name is kept and re-prefixed with index.
     const scope = makeScope();
     // oxlint-disable-next-line no-new
     new NodejsFunction(scope, 'my-handler', {
@@ -110,10 +113,49 @@ describe('NodejsFunction', () => {
 
     expect(() =>
       Template.fromStack(scope).hasResourceProperties('AWS::Lambda::Function', {
-        Handler: 'myFile.myFunction',
+        Handler: 'index.myFunction',
       }),
     ).not.toThrow();
   });
+
+  it('keeps only the final segment of a multi-dot / path-prefixed handler', () => {
+    const scope = makeScope();
+    // oxlint-disable-next-line no-new
+    new NodejsFunction(scope, 'my-handler', {
+      entry: entryFile,
+      handler: 'src/nested.module.run',
+      depsLockFilePath: lockFile,
+      bundling: {
+        bundler: 'esbuild',
+        bundlerConfig: path.join(tmpDir, 'build.mjs'),
+      },
+    });
+
+    expect(() =>
+      Template.fromStack(scope).hasResourceProperties('AWS::Lambda::Function', {
+        Handler: 'index.run',
+      }),
+    ).not.toThrow();
+  });
+
+  it.each(['', '   ', 'handler.', 'my-fn', '2fn', 'a.b.'])(
+    'throws ValidationError for malformed handler %p',
+    (handler) => {
+      const scope = makeScope();
+      expect(
+        () =>
+          new NodejsFunction(scope, 'my-handler', {
+            entry: entryFile,
+            handler,
+            depsLockFilePath: lockFile,
+            bundling: {
+              bundler: 'esbuild',
+              bundlerConfig: path.join(tmpDir, 'build.mjs'),
+            },
+          }),
+      ).toThrow(ValidationError);
+    },
+  );
 
   it('prefixes handler with index. when no dot present', () => {
     const scope = makeScope();
@@ -189,6 +231,24 @@ describe('NodejsFunction', () => {
       () =>
         new NodejsFunction(scope, 'my-handler', {
           entry: path.join(tmpDir, 'handler.py'),
+          depsLockFilePath: lockFile,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: path.join(tmpDir, 'build.mjs'),
+          },
+        }),
+    ).toThrow(ValidationError);
+  });
+
+  it('throws when entry path is a directory rather than a file', () => {
+    const dirEntry = path.join(tmpDir, 'handler-dir.ts');
+    fs.mkdirSync(dirEntry);
+
+    const scope = makeScope();
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: dirEntry,
           depsLockFilePath: lockFile,
           bundling: {
             bundler: 'esbuild',

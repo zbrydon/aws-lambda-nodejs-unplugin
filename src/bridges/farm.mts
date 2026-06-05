@@ -1,7 +1,7 @@
 import { build } from '@farmfe/core';
 
 import { getArgs } from './get-args.ts';
-import { writeBundleMeta } from './write-meta.ts';
+import { isEsmFormat, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
 
@@ -11,6 +11,8 @@ if (!userConfig || typeof userConfig !== 'object') {
   throw new Error(`Config file must export a default config object: ${configPath}`);
 }
 
+const format: string | undefined = userConfig.compilation?.output?.format;
+
 await build({
   ...userConfig,
   compilation: {
@@ -19,9 +21,10 @@ await build({
     output: {
       ...userConfig.compilation?.output,
       path: outputDir,
-      // Enforce [entryName].js so the output is always index.js regardless of user config.
-      entryFilename: '[entryName].js',
+      // Enforce [entryName].(m)js so the output is always index.js (CJS) or
+      // index.mjs (ESM) regardless of the user's entryFilename.
+      entryFilename: isEsmFormat(format) ? '[entryName].mjs' : '[entryName].js',
     },
   },
 });
-writeBundleMeta(outputDir, userConfig.compilation?.output?.format);
+writeBundleMeta(outputDir, format);
