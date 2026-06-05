@@ -203,9 +203,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@arethetypeswrong/core@0.18.1>fflate': 0.8.2
-
 patchedDependencies:
   '@changesets/cli@2.31.0': d33ce3d167a9da36634f25aede1f601abe60b3e4977b80cb7bc4f2fd369f6c7d
 
