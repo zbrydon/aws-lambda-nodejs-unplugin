@@ -330,6 +330,31 @@ describe('NodejsFunction', () => {
     ).toThrow(ValidationError);
   });
 
+  it('does not throw when same-manager lock variants coexist (bun.lock + bun.lockb)', () => {
+    // Both bun lock variants commonly coexist during a migration; they are the
+    // same manager, so this must resolve (to bun.lock by precedence) rather than
+    // erroring like the cross-manager case above.
+    fs.writeFileSync(path.join(tmpDir, 'bun.lock'), '');
+    fs.writeFileSync(path.join(tmpDir, 'bun.lockb'), '');
+    vi.spyOn(utilModule, 'findUpMultiple').mockReturnValueOnce([
+      path.join(tmpDir, 'bun.lock'),
+      path.join(tmpDir, 'bun.lockb'),
+    ]);
+
+    const scope = makeScope();
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          projectRoot: tmpDir,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: path.join(tmpDir, 'build.mjs'),
+          },
+        }),
+    ).not.toThrow();
+  });
+
   it('throws when no lock files found anywhere', () => {
     // Mock findUpMultiple to return no lock files.
     vi.spyOn(utilModule, 'findUpMultiple').mockReturnValueOnce([]);
@@ -619,6 +644,119 @@ describe('NodejsFunction', () => {
     // The path must be derived from thisFile (function.test.*), not factory.js.
     expect(errorMessage).not.toContain('factory');
     expect(errorMessage).toContain('function.test');
+  });
+
+  it('auto-detect: tolerates a NodejsFunction frame with a null filename', () => {
+    // The NodejsFunction frame's own filename may be null (native/eval frame);
+    // ownFile becomes undefined and the plausibility guard is skipped. Resolution
+    // then proceeds from the defining frame (here a non-matching file -> throws on
+    // missing handler, not on the plausibility guard).
+    const thisFile = fileURLToPath(import.meta.url);
+    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([
+      {
+        getFunctionName: () => 'NodejsFunction',
+        getTypeName: () => 'NodejsFunction',
+        getFileName: () => null as unknown as string,
+        getLineNumber: () => 1,
+        getColumnNumber: () => 1,
+        isNative: () => false,
+        isToplevel: () => false,
+        isEval: () => false,
+        isConstructor: () => true,
+        getThis: () => undefined,
+        getMethodName: () => null as unknown as string,
+        getFunction: () => undefined as unknown as () => unknown,
+        getEvalOrigin: () => '',
+      },
+      {
+        getFunctionName: () => 'UserStack',
+        getTypeName: () => 'UserStack',
+        getFileName: () => thisFile,
+        getLineNumber: () => 10,
+        getColumnNumber: () => 5,
+        isNative: () => false,
+        isToplevel: () => false,
+        isEval: () => false,
+        isConstructor: () => true,
+        getThis: () => undefined,
+        getMethodName: () => null as unknown as string,
+        getFunction: () => undefined as unknown as () => unknown,
+        getEvalOrigin: () => '',
+      },
+    ] as ReturnType<typeof utilModule.callsites>);
+
+    const scope = makeScope();
+    let errorMessage = '';
+    try {
+      const _fn = new NodejsFunction(scope, 'no-such-handler-xyz', {
+        depsLockFilePath: lockFile,
+        bundling: {
+          bundler: 'esbuild',
+          bundlerConfig: path.join(tmpDir, 'build.mjs'),
+        },
+      });
+    } catch (e) {
+      errorMessage = String(e);
+    }
+    // Failed on missing handler file, not on the plausibility guard.
+    expect(errorMessage).toContain('no-such-handler-xyz');
+    expect(errorMessage).not.toContain('Pass `entry` explicitly');
+  });
+
+  it('auto-detect: throws when resolution points back at this package itself', () => {
+    // If frame-skipping lands back on the NodejsFunction frame's own module (e.g.
+    // a multi-level / top-level factory wrapper), the derived entry would be wrong.
+    // The defining frame here resolves to the same file as the NodejsFunction frame,
+    // so resolution is implausible and must fail loudly rather than emit a bad path.
+    const ownModule = '/some/path/function.js';
+    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([
+      {
+        getFunctionName: () => 'NodejsFunction',
+        getTypeName: () => 'NodejsFunction',
+        getFileName: () => ownModule,
+        getLineNumber: () => 1,
+        getColumnNumber: () => 1,
+        isNative: () => false,
+        isToplevel: () => false,
+        isEval: () => false,
+        isConstructor: () => true,
+        getThis: () => undefined,
+        getMethodName: () => null as unknown as string,
+        getFunction: () => undefined as unknown as () => unknown,
+        getEvalOrigin: () => '',
+      },
+      {
+        // Defining frame resolves to the same file as the NodejsFunction frame.
+        getFunctionName: () => 'someFactory',
+        getTypeName: () => 'SomeType',
+        getFileName: () => ownModule,
+        getLineNumber: () => 10,
+        getColumnNumber: () => 5,
+        isNative: () => false,
+        isToplevel: () => false,
+        isEval: () => false,
+        isConstructor: () => true,
+        getThis: () => undefined,
+        getMethodName: () => null as unknown as string,
+        getFunction: () => undefined as unknown as () => unknown,
+        getEvalOrigin: () => '',
+      },
+    ] as ReturnType<typeof utilModule.callsites>);
+
+    const scope = makeScope();
+    let errorMessage = '';
+    try {
+      const _fn = new NodejsFunction(scope, 'my-handler', {
+        depsLockFilePath: lockFile,
+        bundling: {
+          bundler: 'esbuild',
+          bundlerConfig: path.join(tmpDir, 'build.mjs'),
+        },
+      });
+    } catch (e) {
+      errorMessage = String(e);
+    }
+    expect(errorMessage).toContain('Pass `entry` explicitly');
   });
 
   const s3KeyForAssetHash = (assetHash: string): string => {

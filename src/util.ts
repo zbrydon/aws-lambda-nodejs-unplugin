@@ -150,6 +150,14 @@ const tryGetModuleVersionFromPkg = (
     return `file:${path.join(path.dirname(pkgPath), filePart)}`;
   }
 
+  // workspace: / link: / catalog: specifiers cannot be resolved by the package
+  // manager inside the isolated install dir (there is no surrounding workspace
+  // or catalog there). Return undefined so the require-based fallback resolves
+  // the concrete installed version instead of writing an unresolvable specifier.
+  if (/^(workspace|link|catalog):/.test(version)) {
+    return undefined;
+  }
+
   return version;
 };
 

@@ -5,7 +5,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import type { Construct } from 'constructs';
 import { Bundling } from './bundling.ts';
 import { ValidationError } from './errors.ts';
-import { LOCK_FILE_NAMES } from './package-manager.ts';
+import { LOCK_FILE_NAMES, lockFilePackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
 import { callsites, findUpMultiple } from './util.ts';
 
@@ -18,6 +18,11 @@ export interface NodejsFunctionProps extends lambda.FunctionOptions {
    *   `<defining-file>.<id>.(ts|js|mjs|mts|cts|cjs)`
    *
    * Relative paths are resolved against the process working directory.
+   *
+   * Auto-detection assumes `new NodejsFunction(...)` is called directly from your
+   * construct/stack, or wrapped by at most one synchronous factory frame inside a
+   * construct constructor. A top-level or asynchronous factory wrapper resolves
+   * the entry relative to the wrong file; pass `entry` explicitly in that case.
    */
   readonly entry?: string;
 
@@ -126,11 +131,22 @@ const findLockFile = (depsLockFilePath?: string): string => {
       'Cannot find a package lock file. Please specify it with `depsLockFilePath`.',
     );
   }
+  // Multiple lock files at the same level are ambiguous only when they belong to
+  // different package managers. Variants of one manager commonly coexist (e.g.
+  // bun.lock + bun.lockb during a bun migration), so collapse those and select by
+  // precedence rather than erroring.
   if (lockFiles.length > 1) {
-    throw new ValidationError(
-      `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
-    );
+    const managers = new Set(lockFiles.map((f) => lockFilePackageManager(path.basename(f))));
+    if (managers.size > 1) {
+      throw new ValidationError(
+        `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
+      );
+    }
   }
+  // One file, or several variants of the same manager: take the first.
+  // findUpMultiple iterates LOCK_FILE_NAMES (precedence-ordered) within a single
+  // directory, so lockFiles is already precedence-ordered; [0] is the
+  // highest-precedence match and is defined per the non-empty guard above.
   return lockFiles[0] as string;
 };
 
@@ -154,32 +170,38 @@ const findEntry = (id: string, entry?: string): string => {
 
   const definingFile = findDefiningFile();
   const extname = path.extname(definingFile);
+  const extPattern = new RegExp(`${escapeRegExp(extname)}$`);
 
-  for (const ext of ENTRY_EXTENSIONS) {
-    // Use a replacer function so special replacement sequences ($&, $', etc.)
-    // inside `id` are never interpreted by String.prototype.replace.
-    const candidate = definingFile.replace(
-      new RegExp(`${escapeRegExp(extname)}$`),
-      () => `.${id}${ext}`,
-    );
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
+  // Use a replacer function so special replacement sequences ($&, $', etc.)
+  // inside `id` are never interpreted by String.prototype.replace.
+  const candidates = ENTRY_EXTENSIONS.map((ext) =>
+    definingFile.replace(extPattern, () => `.${id}${ext}`),
+  );
+
+  const match = candidates.find((candidate) => fs.existsSync(candidate));
+  if (match) {
+    return match;
   }
 
-  const tried = ENTRY_EXTENSIONS.map((ext) =>
-    definingFile.replace(new RegExp(`${escapeRegExp(extname)}$`), () => `.${id}${ext}`),
-  ).join(', ');
-
-  throw new ValidationError(`Cannot find handler file. Tried: ${tried}`);
+  throw new ValidationError(`Cannot find handler file. Tried: ${candidates.join(', ')}`);
 };
+
+// Normalise file:// URLs added by ESM loaders. fileURLToPath handles Windows
+// drive letters (file:///C:/...) correctly; a plain regex strip would leave a
+// leading slash that path.resolve cannot interpret on Windows.
+const normalizeFileName = (fileName: string): string =>
+  fileName.startsWith('file://') ? fileURLToPath(fileName) : fileName;
 
 const findDefiningFile = (): string => {
   const sites = callsites();
   let definingIndex: number | undefined;
+  let ownFile: string | undefined;
 
   for (const [index, site] of sites.entries()) {
     if (site.getFunctionName() === 'NodejsFunction') {
+      // The NodejsFunction frame lives in this package's own module; remember it
+      // so an over/under-skipped frame that lands back here is caught below.
+      ownFile = site.getFileName() ?? undefined;
       // Start one frame after NodejsFunction itself; skip super()-chain frames
       // (getTypeName() === null && isConstructor()) to reach the real call site.
       let depth = index + 1;
@@ -218,13 +240,21 @@ const findDefiningFile = (): string => {
     throw new ValidationError('Cannot find defining file.');
   }
 
-  // Normalise file:// URLs added by ESM loaders.  fileURLToPath handles
-  // Windows drive letters (file:///C:/...) correctly; a plain regex strip
-  // would leave a leading slash that path.resolve cannot interpret on Windows.
-  if (fileName.startsWith('file://')) {
-    return fileURLToPath(fileName);
+  const resolved = normalizeFileName(fileName);
+
+  // If resolution lands back on this package's own module, frame-skipping has
+  // failed (e.g. a non-synchronous or multi-level factory wrapper) and the
+  // derived entry would be wrong. Fail loudly instead of emitting a bad path.
+  if (ownFile && normalizeFileName(ownFile) === resolved) {
+    throw new ValidationError(
+      'Could not auto-detect the handler entry: resolution pointed back at ' +
+        'aws-lambda-nodejs-unplugin itself. This happens when `new NodejsFunction(...)` ' +
+        'is not called directly from your construct/stack (e.g. wrapped by a factory). ' +
+        'Pass `entry` explicitly.',
+    );
   }
-  return fileName;
+
+  return resolved;
 };
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

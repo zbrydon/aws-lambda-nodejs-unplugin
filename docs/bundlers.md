@@ -5,7 +5,7 @@ Each bundler requires a config file that exports a default configuration object.
 Your config does **not** need to:
 
 - Read env vars for the entry or output path (the driver injects those).
-- Import `createLambdaUnplugin` (the driver handles externals internally).
+- Import or wrap anything from this package (the driver calls the bundler directly; there is no plugin to install in your config).
 
 Because the config is a plain object export, the same file works for local dev builds: just add `entryPoints`/`input`/`entry` and `outfile`/`output.dir`/`output.path` for the paths you want locally. The driver overrides those fields at synthesis time.
 

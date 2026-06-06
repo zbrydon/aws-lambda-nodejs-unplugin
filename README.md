@@ -87,10 +87,10 @@ new NodejsFunction(this, 'my-function', {
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md)
-- [Bundler configs](docs/bundlers.md)
-- [API reference](docs/api-reference.md)
-- [Advanced usage](docs/advanced.md)
+- [Getting started](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/getting-started.md)
+- [Bundler configs](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/bundlers.md)
+- [API reference](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/api-reference.md)
+- [Advanced usage](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/advanced.md)
 
 ## License
 

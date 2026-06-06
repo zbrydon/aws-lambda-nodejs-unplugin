@@ -46,7 +46,7 @@ Install commands used:
 | ---- | ------------------------------------------------------------------------------------------------------------- |
 | pnpm | `pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-frozen-lockfile` |
 | yarn | `yarn install --no-immutable`                                                                                 |
-| bun  | `bun install --backend copyfile`                                                                              |
+| bun  | `bun install --backend copyfile` (with `--ignore-scripts` appended when `ignoreScripts` is set)               |
 | npm  | `npm ci` (when `package-lock.json` is present), otherwise `npm install`                                       |
 
 When corepack is active (detected via `corepack --version`) and the `packageManager` field is set, the install command is prefixed with `corepack <pm>` so the pinned version is honoured.

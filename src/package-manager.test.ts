@@ -9,6 +9,7 @@ import {
   copyWorkspaceFiles,
   detectPackageManager,
   isCorepackAvailable,
+  resetCorepackCache,
 } from './package-manager.ts';
 
 vi.mock('child_process', async (importOriginal) => {
@@ -19,6 +20,11 @@ vi.mock('child_process', async (importOriginal) => {
 const spawnSyncMock = vi.mocked(spawnSync);
 
 describe('isCorepackAvailable', () => {
+  beforeEach(() => {
+    // Availability is memoized at module scope; reset so each case probes afresh.
+    resetCorepackCache();
+  });
+
   it('returns true when corepack exits 0', () => {
     spawnSyncMock.mockReturnValueOnce({
       status: 0,
@@ -57,6 +63,23 @@ describe('isCorepackAvailable', () => {
     });
     expect(isCorepackAvailable()).toBe(false);
   });
+
+  it('memoizes the result and does not re-probe on the second call', () => {
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from('0.24.0'),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+    const callsBefore = spawnSyncMock.mock.calls.length;
+    expect(isCorepackAvailable()).toBe(true);
+    // Second call returns the cached value without spawning again.
+    expect(isCorepackAvailable()).toBe(true);
+    expect(spawnSyncMock.mock.calls).toHaveLength(callsBefore + 1);
+  });
 });
 
 describe('detectPackageManager', () => {
@@ -64,6 +87,8 @@ describe('detectPackageManager', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-test-'));
+    // Availability is memoized at module scope; reset so each case probes afresh.
+    resetCorepackCache();
     // Default corepack: not available
     spawnSyncMock.mockReturnValue({
       status: 1,
@@ -234,6 +259,26 @@ describe('detectPackageManager', () => {
     expect(info.installCommand).not.toContain('--no-prefer-frozen-lockfile');
   });
 
+  it('bun install command appends --ignore-scripts when ignoreScripts is set', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ packageManager: 'bun@1.0.0' }),
+    );
+    const info = detectPackageManager(tmpDir, { ignoreScripts: true });
+    expect(info.name).toBe('bun');
+    expect(info.installCommand).toContain('--ignore-scripts');
+  });
+
+  it('bun install command omits --ignore-scripts by default', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ packageManager: 'bun@1.0.0' }),
+    );
+    const info = detectPackageManager(tmpDir);
+    expect(info.name).toBe('bun');
+    expect(info.installCommand).not.toContain('--ignore-scripts');
+  });
+
   it('npm install command is "npm ci" when package-lock.json is present', () => {
     fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{}');
     const info = detectPackageManager(tmpDir);
@@ -284,6 +329,34 @@ describe('detectPackageManager', () => {
       }),
     ).not.toThrow();
   });
+
+  it('reuses the provided lockFilePath to choose the package manager', () => {
+    // No packageManager/devEngines fields and no lock file in projectRoot; the
+    // already-discovered lock file should drive detection.
+    const info = detectPackageManager(tmpDir, {
+      lockFilePath: path.join('/elsewhere', 'yarn.lock'),
+    });
+    expect(info.name).toBe('yarn');
+  });
+
+  it('honors a leaf package.json packageManager field over the project root in a monorepo', () => {
+    // Root declares npm; the leaf sub-package (nearer the handler) declares pnpm.
+    // Detection must walk up from startDir and honor the nearest declaration.
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ packageManager: 'npm@10.0.0' }),
+    );
+    const leafDir = path.join(tmpDir, 'packages', 'leaf');
+    fs.mkdirSync(leafDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(leafDir, 'package.json'),
+      JSON.stringify({ packageManager: 'pnpm@9.0.0' }),
+    );
+
+    const info = detectPackageManager(tmpDir, { startDir: leafDir });
+    expect(info.name).toBe('pnpm');
+    expect(info.version).toBe('9.0.0');
+  });
 });
 
 describe('copyWorkspaceFiles', () => {
@@ -331,6 +404,65 @@ describe('copyWorkspaceFiles', () => {
     expect(fs.existsSync(path.join(destDir, '.npmrc'))).toBe(true);
     // .pnpmfile.cjs didn't exist in src; should not be created in dest
     expect(fs.existsSync(path.join(destDir, '.pnpmfile.cjs'))).toBe(false);
+  });
+
+  const makeInfo = (name: 'npm' | 'pnpm' | 'yarn' | 'bun') => ({
+    name,
+    version: undefined,
+    useCorepack: false,
+    lockFile: LockFile.NPM,
+    installCommand: [name, 'install'] as [string, ...string[]],
+    workspaceFiles: WORKSPACE_FILES[name],
+    packageManagerField: undefined,
+  });
+
+  it.each(['npm', 'pnpm'] as const)(
+    'injects ignore-scripts=true into .npmrc for %s when ignoreScripts is set',
+    (name) => {
+      copyWorkspaceFiles(srcDir, destDir, makeInfo(name), [], true);
+      const npmrc = fs.readFileSync(path.join(destDir, '.npmrc'), 'utf8');
+      expect(npmrc).toContain('ignore-scripts=true');
+    },
+  );
+
+  it('injects enableScripts: false into .yarnrc.yml for yarn when ignoreScripts is set', () => {
+    copyWorkspaceFiles(srcDir, destDir, makeInfo('yarn'), [], true);
+    const yarnrc = fs.readFileSync(path.join(destDir, '.yarnrc.yml'), 'utf8');
+    expect(yarnrc).toContain('enableScripts: false');
+  });
+
+  it('is a no-op for bun when ignoreScripts is set', () => {
+    copyWorkspaceFiles(srcDir, destDir, makeInfo('bun'), [], true);
+    expect(fs.existsSync(path.join(destDir, '.npmrc'))).toBe(false);
+    expect(fs.existsSync(path.join(destDir, '.yarnrc.yml'))).toBe(false);
+  });
+
+  it('appends ignore-scripts to an existing .npmrc without a trailing newline', () => {
+    fs.writeFileSync(path.join(srcDir, '.npmrc'), 'registry=https://example.test');
+    copyWorkspaceFiles(srcDir, destDir, makeInfo('npm'), [], true);
+    const npmrc = fs.readFileSync(path.join(destDir, '.npmrc'), 'utf8');
+    expect(npmrc).toContain('registry=https://example.test');
+    expect(npmrc).toContain('\nignore-scripts=true');
+  });
+
+  it('does not duplicate ignore-scripts when already present', () => {
+    fs.writeFileSync(path.join(srcDir, '.npmrc'), 'ignore-scripts=true\n');
+    copyWorkspaceFiles(srcDir, destDir, makeInfo('npm'), [], true);
+    const npmrc = fs.readFileSync(path.join(destDir, '.npmrc'), 'utf8');
+    expect(npmrc.match(/ignore-scripts=true/g)).toHaveLength(1);
+  });
+
+  it('throws when a pnpm patch path escapes the project/output directory', () => {
+    const workspaceContent = [
+      'packages: []',
+      'patchedDependencies:',
+      '  "zod@3.22.4": ../../escape.patch',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+    expect(() => copyWorkspaceFiles(srcDir, destDir, makeInfo('pnpm'), ['zod'])).toThrow(
+      /resolves outside/,
+    );
   });
 
   it('skips files that do not exist in projectRoot', () => {

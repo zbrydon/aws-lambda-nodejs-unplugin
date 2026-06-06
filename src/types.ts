@@ -33,4 +33,13 @@ export interface BundlingOptions {
    * bundle fails. Omit for no timeout.
    */
   timeout?: number;
+  /**
+   * Disable package lifecycle scripts (e.g. `postinstall`) during the
+   * `nodeModules` install, as defense-in-depth against a compromised transitive
+   * dependency. Implemented by injecting the setting into the staged
+   * package-manager config (`.npmrc` `ignore-scripts=true` for npm/pnpm,
+   * `.yarnrc.yml` `enableScripts: false` for yarn). Has no effect for bun.
+   * Defaults to false to match upstream `NodejsFunction` behavior.
+   */
+  ignoreScripts?: boolean;
 }

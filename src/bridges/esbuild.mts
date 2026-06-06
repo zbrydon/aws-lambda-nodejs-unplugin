@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import * as path from 'node:path';
 import { getArgs } from './get-args.ts';
+import { assertSingleEntryFile } from './guard.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
@@ -28,4 +29,5 @@ await build({
   entryPoints: [entry],
   outfile: path.join(outputDir, entryFileName(format)),
 });
+assertSingleEntryFile(outputDir, format);
 writeBundleMeta(outputDir, format);

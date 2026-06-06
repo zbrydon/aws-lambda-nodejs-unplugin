@@ -1,6 +1,7 @@
 import { rspack } from '@rspack/core';
 import type { Configuration } from '@rspack/core';
 import { getArgs } from './get-args.ts';
+import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
@@ -14,6 +15,10 @@ if (!userConfig || typeof userConfig !== 'object') {
 // rspack only emits ESM when output.module is true (it also requires
 // experiments.outputModule), so output.module is the authoritative signal.
 const format = userConfig.output?.module === true ? 'esm' : undefined;
+
+// Reject chunk-splitting options that would emit sibling chunks the asset never ships.
+rejectSplittingOption(userConfig.optimization?.splitChunks, 'rspack optimization.splitChunks');
+rejectSplittingOption(userConfig.optimization?.runtimeChunk, 'rspack optimization.runtimeChunk');
 
 const finalConfig: Configuration = {
   ...userConfig,
@@ -40,4 +45,6 @@ await new Promise<void>((resolve, reject) => {
     compiler.close(() => resolve());
   });
 });
+// Backstop for dynamic import() splitting, undetectable from config.
+assertSingleEntryFile(outputDir, format);
 writeBundleMeta(outputDir, format);

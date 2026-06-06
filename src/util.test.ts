@@ -149,6 +149,29 @@ describe('extractDependencies', () => {
     expect(result.local).toBe('file:/abs/path');
   });
 
+  it.each(['workspace:*', 'workspace:^1.0.0', 'link:../pkg', 'catalog:', 'catalog:react'])(
+    'resolves %p specifier to the concrete installed version via the require fallback',
+    (spec) => {
+      // workspace: / link: / catalog: specifiers cannot be installed verbatim in
+      // the isolated dir, so they must resolve to the actually-installed version.
+      fs.writeFileSync(tmpPkgPath, JSON.stringify({ dependencies: { vitest: spec } }));
+      const result = extractDependencies(tmpPkgPath, ['vitest']);
+      // vitest is installed in this repo; the resolved value is a real version, not the spec.
+      expect(result.vitest).not.toBe(spec);
+      expect(result.vitest).toMatch(/^\d+\.\d+\.\d+/);
+    },
+  );
+
+  it('throws when a workspace: specifier cannot be resolved from installed modules', () => {
+    fs.writeFileSync(
+      tmpPkgPath,
+      JSON.stringify({ dependencies: { __nonexistent_module__: 'workspace:*' } }),
+    );
+    expect(() => extractDependencies(tmpPkgPath, ['__nonexistent_module__'])).toThrow(
+      ValidationError,
+    );
+  });
+
   it('falls back to require for installed transitive deps', () => {
     // 'vitest' is actually installed, so its version is resolvable even if
     // not in the pkg JSON when we omit it from the keys.

@@ -45,6 +45,20 @@ const makeSpawnError = (err: Error) => ({
   signal: null,
 });
 
+// Build a spawnSync result with custom stderr. spawnSync returns a string when
+// `encoding` is set (a Buffer otherwise); the cast lets a test supply either, or
+// null, regardless of the mock's nominal Buffer return type.
+const makeStderrResult = (status: number, stderr: unknown): ReturnType<typeof spawnSync> =>
+  ({
+    status,
+    error: undefined,
+    pid: 1,
+    output: [],
+    stdout: Buffer.from(''),
+    stderr,
+    signal: null,
+  }) as unknown as ReturnType<typeof spawnSync>;
+
 let tmpDir: string;
 let entryFile: string;
 let pkgJsonPath: string;
@@ -324,6 +338,63 @@ describe('Bundling.local.tryBundle', () => {
       bundling.local.tryBundle(outputDir, bundling);
 
       expect(fs.existsSync(path.join(outputDir, '.npmrc'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes install-only config files even when the install fails', () => {
+    // Credential-bearing files (.npmrc) must not be left in the staged asset when
+    // the install throws; the cleanup runs in a finally.
+    fs.writeFileSync(path.join(tmpDir, '.npmrc'), '//registry.npmjs.org/:_authToken=secret');
+    spawnSyncMock.mockReturnValueOnce(makeSuccessResult()); // bridge
+    spawnSyncMock.mockReturnValueOnce(makeErrorResult(1)); // install fails
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
+      expect(fs.existsSync(path.join(outputDir, '.npmrc'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('appends captured stderr tail to the bundler error message', () => {
+    spawnSyncMock.mockReturnValueOnce(
+      makeStderrResult(1, Buffer.from('Build failed\n  SyntaxError: boom at line 3')),
+    );
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(/SyntaxError: boom/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('handles a string stderr that is only whitespace (no tail appended)', () => {
+    // With `encoding` set, spawnSync returns stderr as a string. Whitespace-only
+    // stderr must not append an empty tail to the error message.
+    spawnSyncMock.mockReturnValueOnce(makeStderrResult(1, '   \n  '));
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('handles a null stderr on the failing bundler without crashing', () => {
+    spawnSyncMock.mockReturnValueOnce(makeStderrResult(1, null));
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }

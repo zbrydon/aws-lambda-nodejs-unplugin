@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ValidationError } from './errors.ts';
 import { isRecord, parseJsonFile } from './util.ts';
 
 export type PackageManagerName = 'npm' | 'yarn' | 'pnpm' | 'bun';
@@ -32,6 +33,10 @@ const LOCK_FILE_PM: [string, PackageManagerName][] = [
 /** Lock-file names in precedence order. Single source for lock-file discovery. */
 export const LOCK_FILE_NAMES: string[] = LOCK_FILE_PM.map(([file]) => file);
 
+/** Maps a lock-file name to the package manager that produces it. */
+export const lockFilePackageManager = (fileName: string): PackageManagerName | undefined =>
+  LOCK_FILE_PM.find(([file]) => file === fileName)?.[1];
+
 /** Workspace-config files to copy from the source repo into the asset output dir. */
 export const WORKSPACE_FILES: Record<PackageManagerName, string[]> = {
   pnpm: ['pnpm-workspace.yaml', '.npmrc', '.pnpmfile.cjs', '.pnpmfile.mjs'],
@@ -62,64 +67,138 @@ export interface PackageManagerInfo {
   packageManagerField: string | undefined;
 }
 
-/** Returns true when corepack is available on PATH. */
-export const isCorepackAvailable = (): boolean => {
-  const result = spawnSync('corepack', ['--version'], { encoding: 'utf8' });
-  return !result.error && result.status === 0;
+/** Bounded timeout for the `corepack --version` availability probe (ms). */
+const COREPACK_PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * Memoized corepack availability. The probe spawns a subprocess and its result
+ * cannot change within a synth, so it is computed once per process rather than
+ * per `NodejsFunction`. A hung corepack shim is bounded by the probe timeout.
+ */
+let corepackAvailableCache: boolean | undefined;
+
+/** Resets the memoized corepack availability. Test-only. */
+export const resetCorepackCache = (): void => {
+  corepackAvailableCache = undefined;
 };
+
+/** Returns true when corepack is available on PATH. Result is memoized. */
+export const isCorepackAvailable = (): boolean => {
+  if (corepackAvailableCache !== undefined) {
+    return corepackAvailableCache;
+  }
+  const result = spawnSync('corepack', ['--version'], {
+    encoding: 'utf8',
+    timeout: COREPACK_PROBE_TIMEOUT_MS,
+  });
+  corepackAvailableCache = !result.error && result.status === 0;
+  return corepackAvailableCache;
+};
+
+/** True when `child` resolves to a path at or below `parent`. */
+const isInside = (parent: string, child: string): boolean => {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+/**
+ * Yields the package.json paths between `startDir` and `projectRoot` (inclusive),
+ * nearest first. In a monorepo the leaf package (nearest the handler) is honored
+ * before the repo root, so a `packageManager` / `devEngines` field declared in a
+ * sub-package is not missed. When `startDir` is not inside `projectRoot` (e.g. an
+ * explicit projectRoot was passed), only `projectRoot` is considered.
+ */
+function* packageJsonChain(startDir: string, projectRoot: string): Generator<string> {
+  const root = path.resolve(projectRoot);
+  const start = path.resolve(startDir);
+
+  if (!isInside(root, start)) {
+    yield path.join(root, 'package.json');
+    return;
+  }
+
+  // start is at or below root, so walking up via dirname is guaranteed to reach
+  // root; yield each directory from the leaf up to (and including) root.
+  let dir = start;
+  while (dir !== root) {
+    yield path.join(dir, 'package.json');
+    dir = path.dirname(dir);
+  }
+  yield path.join(root, 'package.json');
+}
 
 /**
  * Detect the package manager for a given project root directory.
  *
  * Detection order:
- *   1. `package.json#packageManager` (corepack field)
- *   2. `package.json#devEngines.packageManager`
- *   3. Lock file present in `projectRoot`
+ *   1. `package.json#packageManager` (corepack field), nearest package first
+ *   2. `package.json#devEngines.packageManager`, nearest package first
+ *   3. The already-discovered lock file (`lockFilePath`), else a lock file in
+ *      `projectRoot`
  *   4. npm fallback
+ *
+ * Lock discovery and package-manager detection are anchored to the same root:
+ * pass the lock file resolved by `findLockFile` as `options.lockFilePath` so
+ * step 3 agrees with it, and `options.startDir` (the directory of the handler
+ * entry) so steps 1-2 walk up from the leaf package rather than inspecting only
+ * `projectRoot`.
  */
-export const detectPackageManager = (projectRoot: string): PackageManagerInfo => {
-  const pkgPath = path.join(projectRoot, 'package.json');
+export const detectPackageManager = (
+  projectRoot: string,
+  options: { lockFilePath?: string; startDir?: string; ignoreScripts?: boolean } = {},
+): PackageManagerInfo => {
+  const { lockFilePath, startDir = process.cwd(), ignoreScripts = false } = options;
 
-  if (fs.existsSync(pkgPath)) {
+  for (const pkgPath of packageJsonChain(startDir, projectRoot)) {
+    if (!fs.existsSync(pkgPath)) {
+      continue;
+    }
     const parsed: unknown = parseJsonFile(pkgPath);
+    if (!isRecord(parsed)) {
+      continue;
+    }
 
-    if (isRecord(parsed)) {
-      // 1. packageManager field (e.g. "pnpm@9.0.0")
-      if (typeof parsed.packageManager === 'string') {
-        const m = parsed.packageManager.match(/^(npm|yarn|pnpm|bun)@([^\s+]+)/);
-        if (m) {
-          // Safe cast: the regex /^(npm|yarn|pnpm|bun)@/ guarantees m[1] is a
-          // PackageManagerName. TypeScript cannot narrow regex capture groups beyond
-          // string | undefined.
-          const name = m[1] as PackageManagerName;
-          const version = m[2];
-          const corepack = isCorepackAvailable();
-          return buildInfo(name, version, corepack, parsed.packageManager, projectRoot);
-        }
+    if (typeof parsed.packageManager === 'string') {
+      const m = parsed.packageManager.match(/^(npm|yarn|pnpm|bun)@([^\s+]+)/);
+      if (m) {
+        const name = m[1] as PackageManagerName;
+        const version = m[2];
+        const corepack = isCorepackAvailable();
+        return buildInfo(
+          name,
+          version,
+          corepack,
+          parsed.packageManager,
+          projectRoot,
+          ignoreScripts,
+        );
       }
+    }
 
-      // 2. devEngines.packageManager
-      if (isRecord(parsed.devEngines)) {
-        const devEnginesPm = parsed.devEngines.packageManager;
-        if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
-          const name = devEnginesPm.name;
-          const version =
-            typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
-          return buildInfo(name, version, false, undefined, projectRoot);
-        }
+    if (isRecord(parsed.devEngines)) {
+      const devEnginesPm = parsed.devEngines.packageManager;
+      if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
+        const name = devEnginesPm.name;
+        const version = typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
+        return buildInfo(name, version, false, undefined, projectRoot, ignoreScripts);
       }
     }
   }
 
-  // 3. Lockfile detection
+  if (lockFilePath) {
+    const match = LOCK_FILE_PM.find(([lockFile]) => lockFile === path.basename(lockFilePath));
+    if (match) {
+      return buildInfo(match[1], undefined, false, undefined, projectRoot, ignoreScripts);
+    }
+  }
+
   for (const [lockFile, pmName] of LOCK_FILE_PM) {
     if (fs.existsSync(path.join(projectRoot, lockFile))) {
-      return buildInfo(pmName, undefined, false, undefined, projectRoot);
+      return buildInfo(pmName, undefined, false, undefined, projectRoot, ignoreScripts);
     }
   }
 
-  // 4. Fallback
-  return buildInfo('npm', undefined, false, undefined, projectRoot);
+  return buildInfo('npm', undefined, false, undefined, projectRoot, ignoreScripts);
 };
 
 const getLockFile = (name: PackageManagerName, projectRoot: string): string => {
@@ -148,6 +227,7 @@ const buildInstallCommand = (
   name: PackageManagerName,
   useCorepack: boolean,
   projectRoot: string,
+  ignoreScripts: boolean,
 ): [string, ...string[]] => {
   // When corepack is active, prefix with "corepack <pm>" so the pinned
   // version declared in the output package.json is honoured.
@@ -165,7 +245,17 @@ const buildInstallCommand = (
     case 'yarn':
       return [...runner, 'install', '--no-immutable'];
     case 'bun':
-      return [...runner, 'install', '--backend', 'copyfile'];
+      // Unlike npm/pnpm/yarn, bun has no config-file switch for lifecycle
+      // scripts (and is not "safe by default" - it runs scripts for its
+      // built-in trusted list and the most popular packages), so suppress them
+      // with the install flag instead. See injectIgnoreScripts.
+      return [
+        ...runner,
+        'install',
+        '--backend',
+        'copyfile',
+        ...(ignoreScripts ? ['--ignore-scripts'] : []),
+      ];
     default: {
       // Use `npm ci` only when package-lock.json is present; it requires the
       // lock file and will fail when npm was detected via the fallback path
@@ -184,15 +274,49 @@ const buildInfo = (
   useCorepack: boolean,
   packageManagerField: string | undefined,
   projectRoot: string,
+  ignoreScripts: boolean,
 ): PackageManagerInfo => ({
   name,
   version,
   useCorepack,
   lockFile: getLockFile(name, projectRoot),
-  installCommand: buildInstallCommand(name, useCorepack, projectRoot),
+  installCommand: buildInstallCommand(name, useCorepack, projectRoot, ignoreScripts),
   workspaceFiles: WORKSPACE_FILES[name],
   packageManagerField,
 });
+
+/**
+ * When `ignoreScripts` is requested, disable lifecycle scripts during the
+ * isolated install by writing the relevant setting into the staged
+ * package-manager config (these config files are stripped from the asset after
+ * install, so the setting never ships at runtime).
+ */
+const injectIgnoreScripts = (outputDir: string, pm: PackageManagerInfo): void => {
+  const ensureLine = (file: string, key: RegExp, line: string): void => {
+    const target = path.join(outputDir, file);
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+    if (key.test(existing)) {
+      return;
+    }
+    const sep = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    fs.writeFileSync(target, `${existing}${sep}${line}\n`);
+  };
+
+  switch (pm.name) {
+    case 'npm':
+    case 'pnpm':
+      ensureLine('.npmrc', /^ignore-scripts\s*=/m, 'ignore-scripts=true');
+      break;
+    case 'yarn':
+      ensureLine('.yarnrc.yml', /^enableScripts\s*:/m, 'enableScripts: false');
+      break;
+    case 'bun':
+      // No-op: bun has no config-file switch for lifecycle scripts, so the
+      // suppression is applied via the `--ignore-scripts` install flag in
+      // buildInstallCommand rather than a staged config file.
+      break;
+  }
+};
 
 /**
  * Filters pnpm-workspace.yaml content to only include patchedDependencies
@@ -233,10 +357,18 @@ const filterPnpmWorkspaceYaml = (
 
   for (const [, relativePath] of relevantEntries) {
     const src = path.join(projectRoot, relativePath);
+    const dest = path.join(outputDir, relativePath);
+    // A `../`-prefixed relativePath in pnpm-workspace.yaml would read from outside
+    // projectRoot and write outside outputDir. Author-controlled, but bound it so
+    // a stray entry cannot escape the staged asset directory.
+    if (!isInside(projectRoot, src) || !isInside(outputDir, dest)) {
+      throw new ValidationError(
+        `Refusing to copy pnpm patch '${relativePath}': it resolves outside the project root or output directory.`,
+      );
+    }
     if (!fs.existsSync(src)) {
       continue;
     }
-    const dest = path.join(outputDir, relativePath);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, dest);
   }
@@ -258,6 +390,7 @@ export const copyWorkspaceFiles = (
   outputDir: string,
   pm: PackageManagerInfo,
   nodeModules: string[] = [],
+  ignoreScripts = false,
 ): void => {
   for (const file of pm.workspaceFiles) {
     const src = path.join(projectRoot, file);
@@ -271,5 +404,9 @@ export const copyWorkspaceFiles = (
     } else {
       fs.copyFileSync(src, dest);
     }
+  }
+
+  if (ignoreScripts) {
+    injectIgnoreScripts(outputDir, pm);
   }
 };

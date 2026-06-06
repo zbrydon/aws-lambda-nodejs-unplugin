@@ -120,6 +120,43 @@ it.each(['webpack', 'rspack'] as const)(
 );
 
 /**
+ * ESM externals for a non-webpack/rspack bundler. Rollup emits ESM (index.mjs)
+ * with zod marked external; the install path must write `type: module` and the
+ * handler must resolve the external module at runtime.
+ */
+it('excludes nodeModules from a rollup ESM bundle and installs them', async () => {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-esm-ext-rollup-'));
+  try {
+    const bundling = new Bundling({
+      ...BASE_BUNDLING_PROPS,
+      bundler: 'rollup',
+      bundlerConfig: path.resolve('integration/fixtures/rollup-esm-externals.config.mjs'),
+      entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
+      nodeModules: ['zod'],
+    });
+
+    expect(
+      bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
+    ).toBe(true);
+
+    const indexPath = path.join(outputDir, 'index.mjs');
+    expect(fs.existsSync(indexPath), `index.mjs missing in ${outputDir}`).toBe(true);
+
+    const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8')) as {
+      type?: string;
+      dependencies?: Record<string, string>;
+    };
+    expect(outPkg.type, 'package.json must have type:module').toBe('module');
+    expect(outPkg.dependencies, 'package.json must list zod').toHaveProperty('zod');
+
+    const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
+    await assertExternalZod(outputDir, 'rollup', mod);
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+}, 120_000);
+
+/**
  * T4: Farm output filename enforcement — verifies that the bridge enforces
  * entryFilename: '[entryName].js' so index.js is always produced even if the
  * user config omits or overrides entryFilename.

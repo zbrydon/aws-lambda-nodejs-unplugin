@@ -1,6 +1,7 @@
 import { build } from 'vite';
 
 import { getArgs } from './get-args.ts';
+import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { configPath, entry, outputDir } = getArgs();
@@ -19,6 +20,16 @@ const rawOutput = rollOptions?.output;
 const baseOutput = Array.isArray(rawOutput) ? rawOutput[0] : rawOutput;
 // Vite 6 SSR defaults to 'es' when no format is specified.
 const format: string = baseOutput?.format ?? 'es';
+
+// Reject splitting options that would emit sibling chunks the asset never ships.
+if (Array.isArray(rawOutput) && rawOutput.length > 1) {
+  throw new Error(
+    'Multiple Vite build outputs are not supported: the Lambda handler is a single file. ' +
+      'Provide a single `build.rollupOptions.output` (or `rolldownOptions.output`).',
+  );
+}
+rejectSplittingOption(baseOutput?.manualChunks, 'Vite output.manualChunks');
+rejectSplittingOption(baseOutput?.preserveModules, 'Vite output.preserveModules');
 
 // Strip both keys from the user build config so the canonical merged options
 // below are the only ones present.
@@ -46,4 +57,6 @@ await build({
     rolldownOptions: mergedRollOptions,
   },
 });
+// Backstop for dynamic import() splitting, undetectable from config.
+assertSingleEntryFile(outputDir, format);
 writeBundleMeta(outputDir, format);
