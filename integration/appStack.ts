@@ -20,7 +20,7 @@ export class AppStack extends Stack {
       timeout: Duration.seconds(30),
       bundling: {
         bundler: props.bundler,
-        bundlerConfig: `integration/fixtures/${props.bundler}.config.mjs`,
+        bundlerConfig: `integration/fixtures/${props.bundler}/config.mjs`,
       },
       environment: {
         NODE_ENV: 'production',

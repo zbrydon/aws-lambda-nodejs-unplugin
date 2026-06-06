@@ -149,6 +149,13 @@ describe('extractDependencies', () => {
     expect(result.local).toBe('file:/abs/path');
   });
 
+  it.each(['file:', 'file:   '])('throws on a file: specifier with an empty path (%p)', (spec) => {
+    fs.writeFileSync(tmpPkgPath, JSON.stringify({ dependencies: { local: spec } }));
+    expect(() => extractDependencies(tmpPkgPath, ['local'])).toThrow(
+      /'file:' dependency with an empty path/,
+    );
+  });
+
   it.each(['workspace:*', 'workspace:^1.0.0', 'link:../pkg', 'catalog:', 'catalog:react'])(
     'resolves %p specifier to the concrete installed version via the require fallback',
     (spec) => {

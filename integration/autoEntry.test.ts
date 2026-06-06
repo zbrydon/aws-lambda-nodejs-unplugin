@@ -31,7 +31,7 @@ class AutoEntryStack extends Stack {
       architecture: aws_lambda.Architecture.ARM_64,
       bundling: {
         bundler: 'esbuild',
-        bundlerConfig: 'integration/fixtures/esbuild.config.mjs',
+        bundlerConfig: 'integration/fixtures/esbuild/config.mjs',
       },
     });
   }

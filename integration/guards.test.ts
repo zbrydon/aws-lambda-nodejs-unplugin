@@ -28,7 +28,7 @@ describe('single-file guards', () => {
         bundle(
           {
             bundler: 'esbuild',
-            bundlerConfig: path.resolve('integration/fixtures/esbuild-splitting.config.mjs'),
+            bundlerConfig: path.resolve('integration/fixtures/esbuild/splitting.config.mjs'),
           },
           outputDir,
         ),
@@ -45,7 +45,7 @@ describe('single-file guards', () => {
         bundle(
           {
             bundler: 'farm',
-            bundlerConfig: path.resolve('integration/fixtures/farm-splitting.config.mjs'),
+            bundlerConfig: path.resolve('integration/fixtures/farm/splitting.config.mjs'),
           },
           outputDir,
         ),
@@ -62,7 +62,7 @@ describe('single-file guards', () => {
         bundle(
           {
             bundler: 'rollup',
-            bundlerConfig: path.resolve('integration/fixtures/rollup-multi-output.config.mjs'),
+            bundlerConfig: path.resolve('integration/fixtures/rollup/multi-output.config.mjs'),
           },
           outputDir,
         ),
@@ -79,7 +79,7 @@ describe('single-file guards', () => {
         bundle(
           {
             bundler: 'rollup',
-            bundlerConfig: path.resolve('integration/fixtures/rollup-empty-output.config.mjs'),
+            bundlerConfig: path.resolve('integration/fixtures/rollup/empty-output.config.mjs'),
           },
           outputDir,
         ),

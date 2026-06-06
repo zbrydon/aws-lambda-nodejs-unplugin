@@ -26,7 +26,7 @@ it.each(SUPPORTED_BUNDLERS)(
       const bundling = new Bundling({
         ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`integration/fixtures/${bundler}.config.mjs`),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/config.mjs`),
         entry: path.resolve('integration/fixtures/handler.ts'),
       });
 

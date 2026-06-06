@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  LockFile,
   WORKSPACE_FILES,
   copyWorkspaceFiles,
   detectPackageManager,
@@ -116,7 +115,6 @@ describe('detectPackageManager', () => {
     expect(info.version).toBe('9.0.0');
     expect(info.useCorepack).toBe(false);
     expect(info.packageManagerField).toBe('pnpm@9.0.0');
-    expect(info.lockFile).toBe(LockFile.PNPM);
     expect(info.installCommand[0]).toBe('pnpm');
   });
 
@@ -147,7 +145,7 @@ describe('detectPackageManager', () => {
     );
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('yarn');
-    expect(info.lockFile).toBe(LockFile.YARN);
+    expect(info.installCommand[0]).toBe('yarn');
   });
 
   it('detects npm from packageManager field', () => {
@@ -157,7 +155,7 @@ describe('detectPackageManager', () => {
     );
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm');
-    expect(info.lockFile).toBe(LockFile.NPM);
+    expect(info.installCommand[0]).toBe('npm');
   });
 
   it('detects bun from packageManager field', () => {
@@ -167,7 +165,7 @@ describe('detectPackageManager', () => {
     );
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('bun');
-    expect(info.lockFile).toBe(LockFile.BUN_LOCK);
+    expect(info.installCommand[0]).toBe('bun');
   });
 
   it('detects pnpm from devEngines', () => {
@@ -212,17 +210,45 @@ describe('detectPackageManager', () => {
     expect(info.name).toBe('bun');
   });
 
-  it('detects bun from bun.lockb and sets lockFile to bun.lockb', () => {
+  it('detects bun from bun.lockb', () => {
     fs.writeFileSync(path.join(tmpDir, 'bun.lockb'), '');
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('bun');
-    expect(info.lockFile).toBe(LockFile.BUN);
   });
 
   it('detects npm from package-lock.json', () => {
     fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '');
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm');
+  });
+
+  it('uses npm ci when the resolved lock file is an existing package-lock.json', () => {
+    const lock = path.join(tmpDir, 'package-lock.json');
+    fs.writeFileSync(lock, '');
+    const info = detectPackageManager(tmpDir, { lockFilePath: lock });
+    expect(info.name).toBe('npm');
+    expect(info.installCommand).toEqual(['npm', 'ci']);
+  });
+
+  it('uses npm install when the resolved package-lock.json does not exist on disk', () => {
+    // depsLockFilePath points at a package-lock.json that is never created, so no
+    // lock is copied into the install dir and `npm ci` would fail.
+    const lock = path.join(tmpDir, 'package-lock.json');
+    const info = detectPackageManager(tmpDir, { lockFilePath: lock });
+    expect(info.name).toBe('npm');
+    expect(info.installCommand).toEqual(['npm', 'install']);
+  });
+
+  it('uses npm install when npm is detected but the resolved lock file is not package-lock.json', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ packageManager: 'npm@10.0.0' }),
+    );
+    const otherLock = path.join(tmpDir, 'pnpm-lock.yaml');
+    fs.writeFileSync(otherLock, '');
+    const info = detectPackageManager(tmpDir, { lockFilePath: otherLock });
+    expect(info.name).toBe('npm');
+    expect(info.installCommand).toEqual(['npm', 'install']);
   });
 
   it('defaults to npm when nothing found', () => {
@@ -239,17 +265,6 @@ describe('detectPackageManager', () => {
     );
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm'); // fallback
-  });
-
-  it('uses bun.lockb when packageManager field is bun and only bun.lockb is present', () => {
-    fs.writeFileSync(
-      path.join(tmpDir, 'package.json'),
-      JSON.stringify({ packageManager: 'bun@1.0.0' }),
-    );
-    fs.writeFileSync(path.join(tmpDir, 'bun.lockb'), '');
-    const info = detectPackageManager(tmpDir);
-    expect(info.name).toBe('bun');
-    expect(info.lockFile).toBe(LockFile.BUN);
   });
 
   it('pnpm install command uses --no-frozen-lockfile (not --no-prefer-frozen-lockfile)', () => {
@@ -392,7 +407,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'pnpm' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.PNPM,
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
@@ -410,7 +424,6 @@ describe('copyWorkspaceFiles', () => {
     name,
     version: undefined,
     useCorepack: false,
-    lockFile: LockFile.NPM,
     installCommand: [name, 'install'] as [string, ...string[]],
     workspaceFiles: WORKSPACE_FILES[name],
     packageManagerField: undefined,
@@ -470,7 +483,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'yarn' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.YARN,
       installCommand: ['yarn', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.yarn,
       packageManagerField: undefined,
@@ -494,7 +506,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'pnpm' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.PNPM,
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
@@ -520,7 +531,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'pnpm' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.PNPM,
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
@@ -546,7 +556,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'pnpm' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.PNPM,
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
@@ -576,7 +585,6 @@ describe('copyWorkspaceFiles', () => {
       name: 'pnpm' as const,
       version: undefined,
       useCorepack: false,
-      lockFile: LockFile.PNPM,
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,

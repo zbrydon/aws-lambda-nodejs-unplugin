@@ -30,7 +30,7 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
     const bundling = new Bundling({
       ...BASE_BUNDLING_PROPS,
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('integration/fixtures/esbuild-esm.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/esm.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
       nodeModules: ['constructs'],
     });
@@ -75,7 +75,7 @@ it.each(SUPPORTED_BUNDLERS)(
       const bundling = new Bundling({
         ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm.config.mjs`),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/esm.config.mjs`),
         entry: path.resolve('integration/fixtures/handler.ts'),
       });
 

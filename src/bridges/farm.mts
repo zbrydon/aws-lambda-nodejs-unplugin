@@ -1,16 +1,10 @@
 import { build } from '@farmfe/core';
 
-import { getArgs } from './get-args.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { loadBridgeContext } from './load-context.ts';
 import { isEsmFormat, writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir } = getArgs();
-
-const { default: userConfig } = await import(configPath);
-
-if (!userConfig || typeof userConfig !== 'object') {
-  throw new Error(`Config file must export a default config object: ${configPath}`);
-}
+const { entry, outputDir, userConfig } = await loadBridgeContext();
 
 // Farm emits ESM (`export { handler }`) when output.format is omitted - verified
 // empirically with @farmfe/core under both the default and `targetEnv: 'node'`.

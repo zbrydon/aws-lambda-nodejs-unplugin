@@ -16,7 +16,7 @@ import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 const baseBundlingProps = {
   ...BASE_BUNDLING_PROPS,
   bundler: 'esbuild' as const,
-  bundlerConfig: path.resolve('integration/fixtures/esbuild.config.mjs'),
+  bundlerConfig: path.resolve('integration/fixtures/esbuild/config.mjs'),
   entry: path.resolve('integration/fixtures/handler.ts'),
 };
 
@@ -110,7 +110,7 @@ it('beforeInstall hook runs before nodeModules are installed', () => {
     const bundling = new Bundling({
       ...baseBundlingProps,
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-      bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/externals.config.mjs'),
       nodeModules: ['constructs'],
       commandHooks: {
         beforeBundling: () => [],

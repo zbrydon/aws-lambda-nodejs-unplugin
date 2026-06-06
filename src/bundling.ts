@@ -1,10 +1,11 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ILocalBundling } from 'aws-cdk-lib';
 import * as cdk from 'aws-cdk-lib';
 import type { Architecture, AssetCode, Runtime } from 'aws-cdk-lib/aws-lambda';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { isEsmFormat } from './bridges/write-meta.ts';
 import { getBundler } from './bundlers/index.ts';
 import { ValidationError } from './errors.ts';
 import { copyWorkspaceFiles, detectPackageManager } from './package-manager.ts';
@@ -27,10 +28,11 @@ const describeExit = (result: { signal: NodeJS.Signals | null; status: number | 
 
 /**
  * Tail of a captured stderr stream, formatted for appending to a thrown error
- * message. The bridge / install subprocess stderr is printed through to the
- * terminal as it runs, but it scrolls away in the synth output; surfacing the
- * last few lines on the thrown error keeps the real failure reason attached to
- * the generic "exited with status N" message.
+ * message. The bridge / install subprocess stderr is captured (piped) and
+ * re-emitted to this process's stderr after the subprocess exits, so it scrolls
+ * away in the synth output; surfacing the last few lines on the thrown error
+ * keeps the real failure reason attached to the generic "exited with status N"
+ * message.
  */
 const stderrTail = (stderr: string | Buffer | null | undefined, maxLines = 20): string => {
   if (!stderr) {
@@ -43,6 +45,30 @@ const stderrTail = (stderr: string | Buffer | null | undefined, maxLines = 20): 
   }
   const tail = text.trimEnd().split('\n').slice(-maxLines).join('\n');
   return tail ? `\n\n${tail}` : '';
+};
+
+/**
+ * Shared spawnSync result check: re-emit any captured stderr, rethrow a spawn
+ * error (e.g. ENOENT), and throw a ValidationError on a non-zero exit. When
+ * `tail` is set, the last few stderr lines are appended to the thrown message
+ * (only meaningful when stderr was piped rather than inherited).
+ */
+const checkSpawnResult = (
+  result: SpawnSyncReturns<string | Buffer>,
+  prefix: string,
+  { tail = false }: { tail?: boolean } = {},
+): void => {
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new ValidationError(
+      `${prefix} ${describeExit(result)}.${tail ? stderrTail(result.stderr) : ''}`,
+    );
+  }
 };
 
 /**
@@ -96,7 +122,7 @@ export class Bundling implements cdk.BundlingOptions {
           {
             env: process.env,
             // Capture stderr (rather than inheriting it) so its tail can be
-            // attached to the thrown error; it is still printed through below.
+            // attached to the thrown error; it is re-emitted below after exit.
             stdio: ['ignore', 'inherit', 'pipe'],
             cwd: props.projectRoot,
             timeout: props.timeout,
@@ -104,17 +130,7 @@ export class Bundling implements cdk.BundlingOptions {
           },
         );
 
-        if (bundleResult.stderr) {
-          process.stderr.write(bundleResult.stderr);
-        }
-        if (bundleResult.error) {
-          throw bundleResult.error;
-        }
-        if (bundleResult.status !== 0) {
-          throw new ValidationError(
-            `Bundler '${props.bundler}' ${describeExit(bundleResult)}.${stderrTail(bundleResult.stderr)}`,
-          );
-        }
+        checkSpawnResult(bundleResult, `Bundler '${props.bundler}'`, { tail: true });
 
         const metaPath = path.join(outputDir, '.lambda-bundle-meta');
         let isEsm = false;
@@ -126,8 +142,8 @@ export class Bundling implements cdk.BundlingOptions {
           try {
             const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
             const format =
-              isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : null;
-            isEsm = format === 'esm' || format === 'es';
+              isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : undefined;
+            isEsm = isEsmFormat(format);
           } finally {
             fs.unlinkSync(metaPath);
           }
@@ -202,17 +218,7 @@ export class Bundling implements cdk.BundlingOptions {
               encoding: 'utf-8',
             });
 
-            if (installResult.stderr) {
-              process.stderr.write(installResult.stderr);
-            }
-            if (installResult.error) {
-              throw installResult.error;
-            }
-            if (installResult.status !== 0) {
-              throw new ValidationError(
-                `Package manager '${pm.name}' install ${describeExit(installResult)}.${stderrTail(installResult.stderr)}`,
-              );
-            }
+            checkSpawnResult(installResult, `Package manager '${pm.name}' install`, { tail: true });
           } finally {
             // Remove the install-only config files now that install is done (or
             // has failed). These are not needed at runtime and may carry secrets,
@@ -252,11 +258,7 @@ export class Bundling implements cdk.BundlingOptions {
       shell: true,
       timeout: this.props.timeout,
     });
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
-      throw new ValidationError(`Command hook '${cmd}' ${describeExit(result)}.`);
-    }
+    // stderr is inherited (not piped) here, so there is no captured tail to append.
+    checkSpawnResult(result, `Command hook '${cmd}'`);
   }
 }

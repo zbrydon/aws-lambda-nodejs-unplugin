@@ -6,7 +6,7 @@ import { isRecord, parseJsonFile } from './util.ts';
 
 export type PackageManagerName = 'npm' | 'yarn' | 'pnpm' | 'bun';
 
-export enum LockFile {
+enum LockFile {
   NPM = 'package-lock.json',
   YARN = 'yarn.lock',
   BUN = 'bun.lockb',
@@ -52,10 +52,6 @@ export interface PackageManagerInfo {
   version: string | undefined;
   /** Whether corepack is on PATH and the pm was detected via packageManager field. */
   useCorepack: boolean;
-  /**
-   * The canonical lock-file name for this pm (used to copy into the output dir).
-   */
-  lockFile: string;
   /** Fully-resolved install command argv (binary + args). */
   installCommand: [string, ...string[]];
   /** Workspace config files to copy into the output dir. */
@@ -171,6 +167,7 @@ export const detectPackageManager = (
           parsed.packageManager,
           projectRoot,
           ignoreScripts,
+          lockFilePath,
         );
       }
     }
@@ -180,7 +177,7 @@ export const detectPackageManager = (
       if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
         const name = devEnginesPm.name;
         const version = typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
-        return buildInfo(name, version, false, undefined, projectRoot, ignoreScripts);
+        return buildInfo(name, version, false, undefined, projectRoot, ignoreScripts, lockFilePath);
       }
     }
   }
@@ -188,39 +185,33 @@ export const detectPackageManager = (
   if (lockFilePath) {
     const match = LOCK_FILE_PM.find(([lockFile]) => lockFile === path.basename(lockFilePath));
     if (match) {
-      return buildInfo(match[1], undefined, false, undefined, projectRoot, ignoreScripts);
+      return buildInfo(
+        match[1],
+        undefined,
+        false,
+        undefined,
+        projectRoot,
+        ignoreScripts,
+        lockFilePath,
+      );
     }
   }
 
   for (const [lockFile, pmName] of LOCK_FILE_PM) {
     if (fs.existsSync(path.join(projectRoot, lockFile))) {
-      return buildInfo(pmName, undefined, false, undefined, projectRoot, ignoreScripts);
+      return buildInfo(
+        pmName,
+        undefined,
+        false,
+        undefined,
+        projectRoot,
+        ignoreScripts,
+        lockFilePath,
+      );
     }
   }
 
-  return buildInfo('npm', undefined, false, undefined, projectRoot, ignoreScripts);
-};
-
-const getLockFile = (name: PackageManagerName, projectRoot: string): string => {
-  switch (name) {
-    case 'yarn':
-      return LockFile.YARN;
-    case 'pnpm':
-      return LockFile.PNPM;
-    case 'bun':
-      // Prefer the text lock file (bun.lock); fall back to the binary one (bun.lockb).
-      if (fs.existsSync(path.join(projectRoot, LockFile.BUN_LOCK))) {
-        return LockFile.BUN_LOCK;
-      }
-      if (fs.existsSync(path.join(projectRoot, LockFile.BUN))) {
-        return LockFile.BUN;
-      }
-      // Neither present (e.g. bun came from the packageManager field): default to
-      // the modern text lock file name.
-      return LockFile.BUN_LOCK;
-    default:
-      return LockFile.NPM;
-  }
+  return buildInfo('npm', undefined, false, undefined, projectRoot, ignoreScripts, lockFilePath);
 };
 
 const buildInstallCommand = (
@@ -228,6 +219,7 @@ const buildInstallCommand = (
   useCorepack: boolean,
   projectRoot: string,
   ignoreScripts: boolean,
+  lockFilePath: string | undefined,
 ): [string, ...string[]] => {
   // When corepack is active, prefix with "corepack <pm>" so the pinned
   // version declared in the output package.json is honoured.
@@ -257,13 +249,18 @@ const buildInstallCommand = (
         ...(ignoreScripts ? ['--ignore-scripts'] : []),
       ];
     default: {
-      // Use `npm ci` only when package-lock.json is present; it requires the
-      // lock file and will fail when npm was detected via the fallback path
-      // (no lock file found). Fall back to `npm install` in that case.
-      // Assumes the lock file copied into the install dir is package-lock.json,
-      // which holds whenever npm is the detected package manager.
-      const hasLockFile = fs.existsSync(path.join(projectRoot, LockFile.NPM));
-      return hasLockFile ? [...runner, 'ci'] : [...runner, 'install'];
+      // `npm ci` requires a package-lock.json in the install dir and fails
+      // without it. The only lock file copied into the install dir is the
+      // resolved `depsLockFilePath` (passed here as lockFilePath), and only when
+      // it actually exists on disk - so key the decision off that file rather
+      // than whatever happens to sit in projectRoot, since the two can diverge
+      // when the caller passes a non-standard lock location. Fall back to a
+      // projectRoot probe when no lock path was resolved, and to `install`
+      // whenever the copied lock would not be a package-lock.json.
+      const willCopyNpmLock = lockFilePath
+        ? fs.existsSync(lockFilePath) && path.basename(lockFilePath) === LockFile.NPM
+        : fs.existsSync(path.join(projectRoot, LockFile.NPM));
+      return willCopyNpmLock ? [...runner, 'ci'] : [...runner, 'install'];
     }
   }
 };
@@ -275,12 +272,12 @@ const buildInfo = (
   packageManagerField: string | undefined,
   projectRoot: string,
   ignoreScripts: boolean,
+  lockFilePath: string | undefined,
 ): PackageManagerInfo => ({
   name,
   version,
   useCorepack,
-  lockFile: getLockFile(name, projectRoot),
-  installCommand: buildInstallCommand(name, useCorepack, projectRoot, ignoreScripts),
+  installCommand: buildInstallCommand(name, useCorepack, projectRoot, ignoreScripts, lockFilePath),
   workspaceFiles: WORKSPACE_FILES[name],
   packageManagerField,
 });

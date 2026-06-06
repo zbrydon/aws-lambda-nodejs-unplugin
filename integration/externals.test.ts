@@ -53,7 +53,7 @@ it('installs multiple nodeModules packages for esbuild', async () => {
     const bundling = new Bundling({
       ...BASE_BUNDLING_PROPS,
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/externals.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
       nodeModules: ['constructs', 'rollup'],
     });
@@ -92,7 +92,7 @@ it.each(['webpack', 'rspack'] as const)(
       const bundling = new Bundling({
         ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm-externals.config.mjs`),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/esm-externals.config.mjs`),
         entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
         nodeModules: ['constructs'],
       });
@@ -131,7 +131,7 @@ it('excludes nodeModules from a rollup ESM bundle and installs them', async () =
     const bundling = new Bundling({
       ...BASE_BUNDLING_PROPS,
       bundler: 'rollup',
-      bundlerConfig: path.resolve('integration/fixtures/rollup-esm-externals.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/rollup/esm-externals.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
       nodeModules: ['constructs'],
     });
@@ -156,6 +156,49 @@ it('excludes nodeModules from a rollup ESM bundle and installs them', async () =
     fs.rmSync(outputDir, { recursive: true, force: true });
   }
 }, 120_000);
+
+/**
+ * ESM externals for the remaining bundlers (esbuild / vite / rolldown / farm).
+ * Each emits ESM (index.mjs) with `constructs` marked external natively, so the
+ * install path must write `type: module` and the handler must resolve the
+ * external module at runtime. Backs the "every bridge, ESM + externals" claim
+ * alongside the rollup/webpack/rspack cases above.
+ */
+it.each(['esbuild', 'vite', 'rolldown', 'farm'] as const)(
+  'excludes nodeModules from an ESM bundle and installs them for bundler: %s',
+  async (bundler) => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `lambda-esm-ext-${bundler}-`));
+    try {
+      const bundling = new Bundling({
+        ...BASE_BUNDLING_PROPS,
+        bundler,
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/esm-externals.config.mjs`),
+        entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
+        nodeModules: ['constructs'],
+      });
+
+      expect(
+        bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }),
+      ).toBe(true);
+
+      const indexPath = path.join(outputDir, 'index.mjs');
+      expect(fs.existsSync(indexPath), `index.mjs missing in ${outputDir}`).toBe(true);
+
+      const outPkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf8')) as {
+        type?: string;
+        dependencies?: Record<string, string>;
+      };
+      expect(outPkg.type, 'package.json must have type:module').toBe('module');
+      expect(outPkg.dependencies, 'package.json must list constructs').toHaveProperty('constructs');
+
+      const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
+      await assertExternalConstructs(outputDir, bundler, mod);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  },
+  120_000,
+);
 
 /**
  * T4: Farm output filename enforcement — verifies that the bridge enforces
@@ -215,7 +258,7 @@ it.each(SUPPORTED_BUNDLERS)(
       const bundling = new Bundling({
         ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-externals.config.mjs`),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/externals.config.mjs`),
         entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
         nodeModules: ['constructs'],
       });

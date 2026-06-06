@@ -59,7 +59,9 @@ export const isCallSite = (item: unknown): item is CallSite => {
  * https://github.com/sindresorhus/callsites
  */
 export const callsites = (): CallSite[] => {
-  // eslint-disable-next-line @typescript-eslint/unbound-method -- static property, not an instance method; `this` is irrelevant
+  // Capture the static Error.prepareStackTrace property (not an instance method,
+  // so `this` is irrelevant) to restore it after overriding below.
+  // oxlint-disable-next-line typescript/unbound-method
   const _prepareStackTrace = Error.prepareStackTrace;
   Error.prepareStackTrace = (_, stack) => stack;
   // With prepareStackTrace overridden, V8 sets Error.stack to the return value of
@@ -144,10 +146,22 @@ const tryGetModuleVersionFromPkg = (
     );
   }
 
-  // Resolve file: specifiers to absolute paths.
-  const filePart = version.match(/^file:(.+)$/)?.[1];
-  if (filePart !== undefined && !path.isAbsolute(filePart)) {
-    return `file:${path.join(path.dirname(pkgPath), filePart)}`;
+  // Resolve file: specifiers to absolute paths. A bare `file:` (or one with only
+  // whitespace) carries no path and would otherwise be shipped raw / resolved
+  // against an empty path, so reject it loudly.
+  const fileMatch = version.match(/^file:(.*)$/);
+  if (fileMatch) {
+    const filePart = (fileMatch[1] as string).trim();
+    if (!filePart) {
+      throw new ValidationError(
+        `Found a 'file:' dependency with an empty path for '${mod}' in ${pkgPath}. ` +
+          `Please point it at a valid path in your package.json.`,
+      );
+    }
+    if (!path.isAbsolute(filePart)) {
+      return `file:${path.join(path.dirname(pkgPath), filePart)}`;
+    }
+    return `file:${filePart}`;
   }
 
   // workspace: / link: / catalog: specifiers cannot be resolved by the package

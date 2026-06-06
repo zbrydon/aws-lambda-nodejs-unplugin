@@ -196,6 +196,10 @@ const findDefiningFile = (): string => {
   const sites = callsites();
   let definingIndex: number | undefined;
   let ownFile: string | undefined;
+  // True when the entry is derived from a factory-wrapper frame rather than the
+  // immediate caller of `new NodejsFunction(...)`. Used to warn below, since
+  // that is the one path that can silently resolve the wrong sibling file.
+  let skippedFactoryFrame = false;
 
   for (const [index, site] of sites.entries()) {
     if (site.getFunctionName() === 'NodejsFunction') {
@@ -222,6 +226,7 @@ const findDefiningFile = (): string => {
         sites[depth + 1]?.getTypeName() !== null
       ) {
         depth++;
+        skippedFactoryFrame = true;
       }
       definingIndex = depth;
       break;
@@ -251,6 +256,19 @@ const findDefiningFile = (): string => {
         'aws-lambda-nodejs-unplugin itself. This happens when `new NodejsFunction(...)` ' +
         'is not called directly from your construct/stack (e.g. wrapped by a factory). ' +
         'Pass `entry` explicitly.',
+    );
+  }
+
+  // The entry was derived by skipping a factory-wrapper frame, so it came from a
+  // frame that is not the immediate caller. The own-module guard above rules out
+  // landing back in this package, but a same-named sibling file next to the
+  // wrapper can still pass plausibility and be bundled by mistake. Surface a
+  // non-fatal warning so a wrong pick is visible rather than silent.
+  if (skippedFactoryFrame) {
+    process.emitWarning(
+      `Auto-detected the handler entry "${resolved}" by looking past a factory ` +
+        'wrapper around `new NodejsFunction(...)`, not its immediate caller. If this ' +
+        'is the wrong file, pass `entry` explicitly.',
     );
   }
 

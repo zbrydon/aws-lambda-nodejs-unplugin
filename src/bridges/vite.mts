@@ -1,16 +1,10 @@
 import { build } from 'vite';
 
-import { getArgs } from './get-args.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir } = getArgs();
-
-const { default: userConfig } = await import(configPath);
-
-if (!userConfig || typeof userConfig !== 'object') {
-  throw new Error(`Config file must export a default config object: ${configPath}`);
-}
+const { entry, outputDir, userConfig } = await loadBridgeContext();
 
 // A Vite build can be backed by either Rollup (build.rollupOptions) or
 // Rolldown (build.rolldownOptions) depending on the installed Vite flavour.

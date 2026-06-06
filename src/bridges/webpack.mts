@@ -1,16 +1,10 @@
 import webpack from 'webpack';
 import type { Configuration } from 'webpack';
-import { getArgs } from './get-args.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir } = getArgs();
-
-const { default: userConfig } = await import(configPath);
-
-if (!userConfig || typeof userConfig !== 'object') {
-  throw new Error(`Config file must export a default config object: ${configPath}`);
-}
+const { entry, outputDir, userConfig } = await loadBridgeContext();
 
 // webpack only emits ESM when output.module is true (it also requires
 // experiments.outputModule), so output.module is the authoritative signal.
@@ -28,19 +22,25 @@ const finalConfig: Configuration = {
     path: outputDir,
     filename: entryFileName(format),
   },
+  // ESM output requires experiments.outputModule; inject it so a config that
+  // sets only output.module does not error or emit a CJS file that diverges
+  // from the recorded ESM format.
+  ...(format === 'esm' ? { experiments: { ...userConfig.experiments, outputModule: true } } : {}),
 };
 
+const compiler = webpack(finalConfig);
+
 await new Promise<void>((resolve, reject) => {
-  webpack(finalConfig, (err, stats) => {
+  compiler.run((err, stats) => {
     if (err) {
-      reject(err);
+      compiler.close(() => reject(err));
       return;
     }
     if (stats?.hasErrors()) {
-      reject(new Error(stats.toString({ errors: true })));
+      compiler.close(() => reject(new Error(stats.toString({ errors: true }))));
       return;
     }
-    resolve();
+    compiler.close(() => resolve());
   });
 });
 // Backstop for dynamic import() splitting, undetectable from config.

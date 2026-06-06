@@ -438,12 +438,13 @@ describe('Bundling.local.tryBundle', () => {
     }
   });
 
-  it('copies bun.lockb under its original basename even when pm.lockFile resolves to bun.lock', () => {
-    // Regression: pm.lockFile is derived from projectRoot, not from depsLockFilePath.
-    // When bun.lock exists in projectRoot, pm.lockFile = 'bun.lock'.  If the caller
-    // explicitly passes depsLockFilePath pointing to bun.lockb (binary format), the
-    // old code would copy the binary content to outputDir/bun.lock (the wrong name).
-    // The fix uses path.basename(depsLockFilePath) for the destination.
+  it('copies bun.lockb under its original basename even when projectRoot has bun.lock', () => {
+    // Regression: the lock file copied into the install dir must keep the basename
+    // of the caller's depsLockFilePath, not whatever lock file sits in projectRoot.
+    // When bun.lock exists in projectRoot but the caller passes depsLockFilePath
+    // pointing to bun.lockb (binary format), the old code would copy the binary
+    // content to outputDir/bun.lock (the wrong name). The fix uses
+    // path.basename(depsLockFilePath) for the destination.
 
     // Re-configure projectRoot: replace pnpm-lock.yaml with bun.lock so bun is detected.
     fs.unlinkSync(path.join(tmpDir, 'pnpm-lock.yaml'));

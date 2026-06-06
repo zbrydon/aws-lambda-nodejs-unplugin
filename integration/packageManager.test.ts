@@ -55,7 +55,7 @@ it('installs nodeModules with npm when no lock file or packageManager is present
       depsLockFilePath: path.join(projectRoot, 'package-lock.json'),
       projectRoot,
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('integration/fixtures/esbuild.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/config.mjs'),
       entry,
       nodeModules: ['local-dep'],
     });
@@ -117,7 +117,7 @@ const installsWithPackageManager = (
       depsLockFilePath: path.join(projectRoot, lockFile),
       projectRoot,
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('integration/fixtures/esbuild.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/config.mjs'),
       entry,
       nodeModules: ['local-dep'],
     });
@@ -152,3 +152,79 @@ it.skipIf(!hasBin('bun'))(
   },
   180_000,
 );
+
+/**
+ * Installs a local `file:` dependency whose `postinstall` writes a sentinel file
+ * into its own install directory, then reports whether that sentinel exists
+ * after the CDK install step. Uses the npm fallback path (no lock file), so it
+ * runs everywhere without gating. Returns `{ installed, sentinelRan }`.
+ */
+const runPostinstallSentinel = (
+  ignoreScripts: boolean,
+): { installed: boolean; sentinelRan: boolean } => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ignorescripts-project-'));
+  const localDep = path.join(projectRoot, 'local-dep');
+  fs.mkdirSync(localDep);
+  fs.writeFileSync(
+    path.join(localDep, 'package.json'),
+    JSON.stringify({
+      name: 'local-dep',
+      version: '1.0.0',
+      main: 'index.js',
+      // Lifecycle script: writes a sentinel into the package's own install dir.
+      scripts: { postinstall: `node -e "require('fs').writeFileSync('postinstall-ran','1')"` },
+    }),
+  );
+  fs.writeFileSync(path.join(localDep, 'index.js'), 'module.exports = { ok: true };');
+  fs.writeFileSync(
+    path.join(projectRoot, 'package.json'),
+    JSON.stringify({
+      name: 'ignorescripts-project',
+      dependencies: { 'local-dep': `file:${localDep}` },
+    }),
+  );
+
+  const entry = path.join(projectRoot, 'handler.ts');
+  fs.writeFileSync(entry, 'export const handler = async (event: unknown) => event;');
+
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ignorescripts-out-'));
+  try {
+    const bundling = new Bundling({
+      runtime: aws_lambda.Runtime.NODEJS_24_X,
+      architecture: aws_lambda.Architecture.ARM_64,
+      // No lock file on disk so npm detection falls back to `npm install`.
+      depsLockFilePath: path.join(projectRoot, 'package-lock.json'),
+      projectRoot,
+      bundler: 'esbuild',
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/config.mjs'),
+      entry,
+      nodeModules: ['local-dep'],
+      ignoreScripts,
+    });
+
+    const installed =
+      bundling.local.tryBundle(outputDir, { image: cdk.DockerImage.fromRegistry('dummy') }) &&
+      fs.existsSync(path.join(outputDir, 'node_modules', 'local-dep'));
+    const sentinelRan = fs.existsSync(
+      path.join(outputDir, 'node_modules', 'local-dep', 'postinstall-ran'),
+    );
+    return { installed, sentinelRan };
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  }
+};
+
+it('does not run dependency lifecycle scripts when ignoreScripts is true', () => {
+  const { installed, sentinelRan } = runPostinstallSentinel(true);
+  expect(installed, 'local-dep should still be installed').toBe(true);
+  expect(sentinelRan, 'postinstall sentinel must not run with ignoreScripts: true').toBe(false);
+}, 120_000);
+
+it('runs dependency lifecycle scripts by default (ignoreScripts false)', () => {
+  // Paired control so the ignoreScripts:true assertion above is meaningful:
+  // the same project with scripts enabled does produce the sentinel.
+  const { installed, sentinelRan } = runPostinstallSentinel(false);
+  expect(installed, 'local-dep should be installed').toBe(true);
+  expect(sentinelRan, 'postinstall sentinel should run by default').toBe(true);
+}, 120_000);

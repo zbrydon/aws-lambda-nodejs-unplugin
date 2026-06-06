@@ -1,5 +1,5 @@
-import { getArgs } from './get-args.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 export type RollBundler<TInput, TOutput> = (options: TInput) => Promise<{
@@ -10,13 +10,7 @@ export type RollBundler<TInput, TOutput> = (options: TInput) => Promise<{
 export const runRollBridge = async <TInput, TOutput>(
   bundler: RollBundler<TInput, TOutput>,
 ): Promise<void> => {
-  const { configPath, entry, outputDir } = getArgs();
-
-  const { default: userConfig } = await import(configPath);
-
-  if (!userConfig || typeof userConfig !== 'object') {
-    throw new Error(`Config file must export a default config object: ${configPath}`);
-  }
+  const { entry, outputDir, userConfig } = await loadBridgeContext();
 
   const inputOptions = {
     ...userConfig,
@@ -60,8 +54,12 @@ export const runRollBridge = async <TInput, TOutput>(
   const baseOutputOptions = makeOutputOptions(baseRaw);
 
   const bundle = await bundler(inputOptions);
-  await bundle.write(baseOutputOptions);
-  await bundle.close();
+  // Release the bundle handle even if write() throws, otherwise the handle leaks.
+  try {
+    await bundle.write(baseOutputOptions);
+  } finally {
+    await bundle.close();
+  }
   // Backstop for dynamic import() splitting, which manualChunks/preserveModules
   // checks above cannot detect from config.
   assertSingleEntryFile(outputDir, format);
