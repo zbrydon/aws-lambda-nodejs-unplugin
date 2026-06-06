@@ -169,6 +169,8 @@ Maximum time, in milliseconds, that any single spawned subprocess (the bundler b
 
 This is a synth-time guard, unrelated to the Lambda function's runtime `timeout`. Because bundling runs the bundler config, command hooks, and dependency install with full privileges (see [Security / trust model](../README.md#security--trust-model)), a bound here prevents a hung or runaway subprocess from blocking synth indefinitely.
 
+The one-time `corepack --version` availability probe (run once per process, before any bundle is spawned, to decide whether to prefix installs with `corepack`) uses a fixed 5-second timeout and is **not** affected by this option.
+
 #### `ignoreScripts`
 
 ```ts

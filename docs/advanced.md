@@ -80,12 +80,15 @@ new NodejsFunction(this, 'my-fn', {
         return [];
       },
       beforeInstall(inputDir, outputDir) {
-        // Generate Prisma client before installing
-        return [`npx prisma generate --schema=${inputDir}/prisma/schema.prisma`];
+        // Generate Prisma client before installing. Quote the interpolated paths
+        // so a space or shell metacharacter in a staging path cannot break the command.
+        return [`npx prisma generate --schema="${inputDir}/prisma/schema.prisma"`];
       },
       afterBundling(inputDir, outputDir) {
         // Copy generated Prisma engine binaries
-        return [`cp -r ${inputDir}/node_modules/.prisma/client ${outputDir}/node_modules/.prisma/`];
+        return [
+          `cp -r "${inputDir}/node_modules/.prisma/client" "${outputDir}/node_modules/.prisma/"`,
+        ];
       },
     },
   },
@@ -96,7 +99,7 @@ Each method receives `inputDir` (project root) and `outputDir` (CDK asset stagin
 
 Commands run synchronously through the platform default shell (`cmd.exe` on Windows, `/bin/sh` on POSIX) with the project root as the working directory. A non-zero exit throws a `ValidationError`. A spawn error (e.g. `ENOENT`) also throws.
 
-> **Security note:** bundler config files are imported and command hooks are executed with the full privileges of the synth environment (typically CI, with cloud credentials). Treat both as trusted code. Use the `timeout` bundling option to bound how long any subprocess may run.
+> **Security note:** bundler config files are imported and command hooks are executed with the full privileges of the synth environment (typically CI, with cloud credentials), and every spawned subprocess (bundler bridge, package-manager install, command hook) inherits the full `process.env`. Treat both as trusted code. Use the `timeout` bundling option to bound how long any subprocess may run, and prefer `ignoreScripts: true` for untrusted dependency trees. See [Security / trust model](../README.md#security--trust-model) for the full picture.
 
 ---
 

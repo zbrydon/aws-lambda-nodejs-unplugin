@@ -22,6 +22,20 @@ Specifically, for the single Lambda entry point the driver overrides:
 
 The Lambda **handler** is always `index.<functionName>` regardless of output naming — the runtime resolves the `.js`/`.mjs` extension. Because the file part is fixed, only the exported function name in the `handler` prop is significant; a `handler` like `'myFile.handler'` is reduced to `index.handler`.
 
+### Default output format per bundler
+
+The format (CJS vs ESM) is read from each bundler's own config, but the **default
+when you omit it differs by bundler**, so set it explicitly if you care:
+
+- **esbuild, webpack, Rspack** default to **CJS** (`index.js`). webpack/Rspack only
+  emit ESM when `output.module: true` (the driver injects the required
+  `experiments.outputModule` for you).
+- **Rollup, Rolldown, Vite, Farm** default to **ESM** (`index.mjs` + `type: module`).
+  Set `format: 'cjs'` (Farm: `compilation.output.format: 'cjs'`) for CommonJS.
+
+This is an intentional reflection of each bundler's native default rather than a
+normalized default imposed by the driver.
+
 Consequences worth knowing:
 
 - Any `entryFileNames` / `output.filename` / farm `entryFilename` you set is **overridden** — set it only for local dev builds.
