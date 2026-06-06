@@ -3,5 +3,5 @@ export default {
     entryFileNames: 'index.js',
     format: 'cjs',
   },
-  external: [/^node:/, 'zod'],
+  external: [/^node:/, 'constructs'],
 };

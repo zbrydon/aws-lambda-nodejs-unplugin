@@ -5,7 +5,7 @@ export default {
       format: 'cjs',
       targetEnv: 'node',
     },
-    external: ['^node:.*', '^zod(/.*)?$'],
+    external: ['^node:.*', '^constructs(/.*)?$'],
     sourcemap: false,
     minify: false,
     persistentCache: false,

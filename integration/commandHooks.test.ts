@@ -111,7 +111,7 @@ it('beforeInstall hook runs before nodeModules are installed', () => {
       ...baseBundlingProps,
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
       bundlerConfig: path.resolve('integration/fixtures/esbuild-externals.config.mjs'),
-      nodeModules: ['zod'],
+      nodeModules: ['constructs'],
       commandHooks: {
         beforeBundling: () => [],
         afterBundling: () => [],
@@ -132,8 +132,8 @@ it('beforeInstall hook runs before nodeModules are installed', () => {
       'beforeInstall sentinel should exist, confirming the hook ran before install',
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
-      'zod should be installed after the beforeInstall hook',
+      fs.existsSync(path.join(outputDir, 'node_modules', 'constructs')),
+      'constructs should be installed after the beforeInstall hook',
     ).toBe(true);
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });

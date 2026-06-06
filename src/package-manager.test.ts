@@ -456,11 +456,11 @@ describe('copyWorkspaceFiles', () => {
     const workspaceContent = [
       'packages: []',
       'patchedDependencies:',
-      '  "zod@3.22.4": ../../escape.patch',
+      '  "constructs@3.22.4": ../../escape.patch',
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
 
-    expect(() => copyWorkspaceFiles(srcDir, destDir, makeInfo('pnpm'), ['zod'])).toThrow(
+    expect(() => copyWorkspaceFiles(srcDir, destDir, makeInfo('pnpm'), ['constructs'])).toThrow(
       /resolves outside/,
     );
   });
@@ -500,7 +500,7 @@ describe('copyWorkspaceFiles', () => {
       packageManagerField: undefined,
     };
 
-    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
     expect(written).not.toContain('patchedDependencies');
@@ -526,10 +526,10 @@ describe('copyWorkspaceFiles', () => {
       packageManagerField: undefined,
     };
 
-    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
-    // @changesets/cli is not in nodeModules=['zod']
+    // @changesets/cli is not in nodeModules=['constructs']
     expect(written).not.toContain('patchedDependencies');
   });
 
@@ -537,7 +537,7 @@ describe('copyWorkspaceFiles', () => {
     const workspaceContent = [
       'packages: []',
       'patchedDependencies:',
-      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+      '  "constructs@3.22.4": patches/constructs@3.22.4.patch',
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
     // Intentionally do NOT create the patch file in srcDir
@@ -552,24 +552,24 @@ describe('copyWorkspaceFiles', () => {
       packageManagerField: undefined,
     };
 
-    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
-    expect(written).toContain('zod@3.22.4');
+    expect(written).toContain('constructs@3.22.4');
     // Patch file doesn't exist in src, so it should not appear in dest either
-    expect(fs.existsSync(path.join(destDir, 'patches/zod@3.22.4.patch'))).toBe(false);
+    expect(fs.existsSync(path.join(destDir, 'patches/constructs@3.22.4.patch'))).toBe(false);
   });
 
   it('preserves patchedDependencies entries for packages in nodeModules and copies their patch files', () => {
     const workspaceContent = [
       'packages: []',
       'patchedDependencies:',
-      '  "zod@3.22.4": patches/zod@3.22.4.patch',
+      '  "constructs@3.22.4": patches/constructs@3.22.4.patch',
       '  "@changesets/cli@2.31.0": patches/@changesets__cli@2.31.0.patch',
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
     fs.mkdirSync(path.join(srcDir, 'patches'));
-    fs.writeFileSync(path.join(srcDir, 'patches/zod@3.22.4.patch'), 'diff --zod');
+    fs.writeFileSync(path.join(srcDir, 'patches/constructs@3.22.4.patch'), 'diff --constructs');
     fs.writeFileSync(path.join(srcDir, 'patches/@changesets__cli@2.31.0.patch'), 'diff --cs');
 
     const pnpmInfo = {
@@ -582,13 +582,13 @@ describe('copyWorkspaceFiles', () => {
       packageManagerField: undefined,
     };
 
-    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['zod']);
+    copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
     expect(written).toContain('patchedDependencies');
-    expect(written).toContain('zod@3.22.4');
+    expect(written).toContain('constructs@3.22.4');
     expect(written).not.toContain('@changesets/cli@2.31.0');
-    expect(fs.existsSync(path.join(destDir, 'patches/zod@3.22.4.patch'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'patches/constructs@3.22.4.patch'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'patches/@changesets__cli@2.31.0.patch'))).toBe(false);
   });
 });

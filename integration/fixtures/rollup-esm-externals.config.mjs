@@ -1,7 +1,7 @@
 import baseConfig from './rollup-esm.config.mjs';
 
 /**
- * Rollup ESM output with `zod` marked external, to exercise the ESM + externals
+ * Rollup ESM output with `constructs` marked external, to exercise the ESM + externals
  * + `type: module` install path for a non-webpack/rspack bundler.
  */
 export default {
@@ -10,5 +10,5 @@ export default {
     ...baseConfig.output,
     entryFileNames: 'index.mjs',
   },
-  external: [/^node:/, 'zod'],
+  external: [/^node:/, 'constructs'],
 };

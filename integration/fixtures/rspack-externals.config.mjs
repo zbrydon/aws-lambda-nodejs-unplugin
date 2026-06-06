@@ -18,5 +18,5 @@ export default {
   },
   target: 'node',
   mode: 'production',
-  externals: { zod: 'commonjs zod' },
+  externals: { constructs: 'commonjs constructs' },
 };

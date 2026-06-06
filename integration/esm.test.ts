@@ -32,7 +32,7 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
       bundler: 'esbuild',
       bundlerConfig: path.resolve('integration/fixtures/esbuild-esm.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-      nodeModules: ['zod'],
+      nodeModules: ['constructs'],
     });
 
     expect(
@@ -49,19 +49,19 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
       dependencies?: Record<string, string>;
     };
     expect(outPkg.type, 'package.json must have type:module').toBe('module');
-    expect(outPkg.dependencies, 'package.json must list zod').toHaveProperty('zod');
+    expect(outPkg.dependencies, 'package.json must list constructs').toHaveProperty('constructs');
 
     expect(
-      fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
-      'zod not installed in node_modules',
+      fs.existsSync(path.join(outputDir, 'node_modules', 'constructs')),
+      'constructs not installed in node_modules',
     ).toBe(true);
 
     const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
     expect(typeof mod.handler, 'handler should be a function').toBe('function');
     const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({})) as {
-      zodExports: string[];
+      constructsExports: string[];
     };
-    expect(result.zodExports).toContain('z');
+    expect(result.constructsExports).toContain('Construct');
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
   }

@@ -3,5 +3,5 @@ export default {
   platform: 'node',
   target: 'node24',
   format: 'cjs',
-  external: ['zod'],
+  external: ['constructs'],
 };

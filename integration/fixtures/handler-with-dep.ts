@@ -1,7 +1,7 @@
-import * as zod from 'zod';
+import * as constructs from 'constructs';
 
 /**
- * Fixture handler that imports from `zod`.
+ * Fixture handler that imports from `constructs`.
  *
  * Used by the externals integration test to verify that a module listed in
  * `nodeModules` is excluded from the bundle (marked external by the plugin)
@@ -10,5 +10,5 @@ import * as zod from 'zod';
 export const handler = async (event: unknown) => ({
   event,
   // Object.keys confirms the external module loaded correctly at runtime.
-  zodExports: Object.keys(zod).sort(),
+  constructsExports: Object.keys(constructs).sort(),
 });

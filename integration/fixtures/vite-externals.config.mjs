@@ -3,7 +3,7 @@ export default {
     emptyOutDir: false,
     target: 'node24',
     rolldownOptions: {
-      external: ['zod'],
+      external: ['constructs'],
       output: {
         format: 'cjs',
         entryFileNames: 'index.js',

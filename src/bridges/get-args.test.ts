@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { getArgs } from './get-args.ts';
 
 describe('getArgs', () => {
@@ -6,7 +6,6 @@ describe('getArgs', () => {
 
   afterEach(() => {
     process.argv = originalArgv;
-    vi.restoreAllMocks();
   });
 
   it('parses valid arguments', () => {
@@ -22,6 +21,6 @@ describe('getArgs', () => {
   it('throws when required arguments are missing', () => {
     process.argv = ['node', 'script.js'];
 
-    expect(() => getArgs()).toThrow('Invalid input');
+    expect(() => getArgs()).toThrow('Expected arguments: <configPath> <entry> <outputDir>');
   });
 });
