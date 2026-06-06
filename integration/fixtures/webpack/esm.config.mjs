@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const esbuildLoader = require.resolve('./esbuild-loader.cjs');
+const esbuildLoader = require.resolve('../esbuild/loader.cjs');
 
 export default {
   module: {

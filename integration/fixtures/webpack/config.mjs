@@ -2,7 +2,7 @@ import { createRequire } from 'module';
 
 // Resolve the loader path at config-evaluation time so webpack can find it.
 const require = createRequire(import.meta.url);
-const esbuildLoader = require.resolve('./esbuild-loader.cjs');
+const esbuildLoader = require.resolve('../esbuild/loader.cjs');
 
 /**
  * Webpack config for the Lambda function.

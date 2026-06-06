@@ -1,4 +1,4 @@
-import { esmExternalsBase } from './esm-externals-base.mjs';
+import { esmExternalsBase } from '../esm-externals-base.mjs';
 
 export default {
   ...esmExternalsBase,

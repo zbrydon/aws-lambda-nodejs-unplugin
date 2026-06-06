@@ -1,4 +1,4 @@
-import baseConfig from './rollup.config.mjs';
+import baseConfig from './config.mjs';
 
 export default {
   ...baseConfig,

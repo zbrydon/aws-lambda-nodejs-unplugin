@@ -1,8 +1,8 @@
 import { createRequire } from 'module';
-import { esmExternalsBase } from './esm-externals-base.mjs';
+import { esmExternalsBase } from '../esm-externals-base.mjs';
 
 const require = createRequire(import.meta.url);
-const esbuildLoader = require.resolve('./esbuild-loader.cjs');
+const esbuildLoader = require.resolve('../esbuild/loader.cjs');
 
 export default {
   ...esmExternalsBase,

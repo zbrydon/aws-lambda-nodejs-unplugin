@@ -1,4 +1,4 @@
-import baseConfig from './rollup-esm.config.mjs';
+import baseConfig from './esm.config.mjs';
 
 /**
  * Rollup ESM output with `constructs` marked external, to exercise the ESM + externals
