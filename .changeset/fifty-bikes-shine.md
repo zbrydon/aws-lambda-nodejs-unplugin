@@ -1,5 +1,5 @@
 ---
-'aws-lambda-nodejs-unplugin': patch
+"aws-lambda-nodejs-unplugin": patch
 ---
 
 Initial release of `aws-lambda-nodejs-unplugin`.
@@ -9,7 +9,6 @@ Initial release of `aws-lambda-nodejs-unplugin`.
 Features:
 
 - `bundler` and `bundlerConfig` props select the bundler and point to a config file that exports a default configuration object; the construct merges in the CDK-controlled entry point and output directory at synthesis time
-- Entry file auto-detection: when `entry` is omitted, the construct resolves the handler file from the call-stack location and the construct `id`
 - `nodeModules` installs specified packages into the Lambda asset directory rather than embedding them in the bundle, with version resolution from your lock file
 - `commandHooks` (`beforeBundling`, `afterBundling`, `beforeInstall`) for running shell commands at each stage of the pipeline
 - Lock file auto-detection by walking up parent directories, with preference order: `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `package-lock.json`
