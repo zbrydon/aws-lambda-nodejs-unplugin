@@ -6,17 +6,11 @@ import { ValidationError } from './errors.ts';
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/**
- * Read and parse a JSON file, rethrowing malformed JSON as a ValidationError so
- * callers surface a consistent, file-attributed error rather than a raw
- * SyntaxError.
- */
 export const parseJsonFile = (filePath: string): unknown => {
   const raw = fs.readFileSync(filePath, 'utf8');
   try {
     return JSON.parse(raw);
   } catch (err) {
-    // JSON.parse only ever throws a SyntaxError, so reading `.message` is safe.
     throw new ValidationError(`Failed to parse ${filePath} as JSON: ${(err as Error).message}`);
   }
 };
