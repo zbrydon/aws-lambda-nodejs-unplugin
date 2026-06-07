@@ -11,11 +11,6 @@ const typescriptPlugin = {
   },
 };
 
-/**
- * Rollup config with multiple outputs. The single-file Lambda asset cannot ship
- * more than one output (they would collide on the same dir + entryFileNames), so
- * the roll-factory bridge must reject this.
- */
 export default {
   output: [{ format: 'es' }, { format: 'cjs' }],
   external: [/^node:/],

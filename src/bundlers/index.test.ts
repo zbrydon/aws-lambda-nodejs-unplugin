@@ -14,7 +14,6 @@ describe('getBundler', () => {
   });
 
   it('throws a ValidationError for an unknown bundler name', () => {
-    // JS callers (or a value widened to string) can bypass the type system.
     expect(() => getBundler('nope' as SupportedBundler)).toThrow(ValidationError);
     expect(() => getBundler('nope' as SupportedBundler)).toThrow(/Unknown bundler/);
   });

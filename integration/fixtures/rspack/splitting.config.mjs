@@ -1,8 +1,3 @@
-/**
- * Rspack config that enables chunk splitting via optimization.splitChunks,
- * which the single-file Lambda asset model does not support. The rspack bridge
- * must reject this before building.
- */
 export default {
   module: {
     rules: [

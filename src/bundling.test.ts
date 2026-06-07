@@ -45,9 +45,6 @@ const makeSpawnError = (err: Error) => ({
   signal: null,
 });
 
-// Build a spawnSync result with custom stderr. spawnSync returns a string when
-// `encoding` is set (a Buffer otherwise); the cast lets a test supply either, or
-// null, regardless of the mock's nominal Buffer return type.
 const makeStderrResult = (status: number, stderr: unknown): ReturnType<typeof spawnSync> =>
   ({
     status,
@@ -71,13 +68,12 @@ beforeEach(() => {
   fs.writeFileSync(pkgJsonPath, JSON.stringify({ dependencies: { pino: '^9' } }));
   fs.writeFileSync(path.join(tmpDir, 'pnpm-lock.yaml'), '');
 
-  // Default: all spawnSync calls succeed (corepack check + bundler)
   spawnSyncMock.mockReturnValue(makeSuccessResult());
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  // resetAllMocks clears mockReturnValueOnce queues so values don't bleed between tests.
+
   vi.resetAllMocks();
 });
 
@@ -110,11 +106,11 @@ describe('Bundling.local.tryBundle', () => {
       expect(bridgeCall).toBeDefined();
 
       const args = bridgeCall![1] as string[];
-      // args: [bridgeScriptPath, configPath, entry, outputDir]
+
       expect(args[0]).toMatch(/esbuild\.mjs$/);
-      expect(args[1]).toBe(path.join(tmpDir, 'build.mjs')); // configPath
-      expect(args[2]).toBe(entryFile); // entry
-      expect(args[3]).toBe(outputDir); // outputDir
+      expect(args[1]).toBe(path.join(tmpDir, 'build.mjs'));
+      expect(args[2]).toBe(entryFile);
+      expect(args[3]).toBe(outputDir);
       expect((bridgeCall![2] as { cwd?: string }).cwd).toBe(tmpDir);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
@@ -122,8 +118,7 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('throws ValidationError when bundler exits non-zero', () => {
-    // No corepack check: test package.json has no packageManager field.
-    spawnSyncMock.mockReturnValueOnce(makeErrorResult(1)); // bundler
+    spawnSyncMock.mockReturnValueOnce(makeErrorResult(1));
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
@@ -135,13 +130,62 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('rethrows spawn errors from the bundler', () => {
-    // No corepack check: test package.json has no packageManager field.
-    spawnSyncMock.mockReturnValueOnce(makeSpawnError(new Error('ENOENT'))); // bundler
+    spawnSyncMock.mockReturnValueOnce(makeSpawnError(new Error('ENOENT')));
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
       const bundling = new Bundling(makeProps());
       expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow('ENOENT');
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('wraps a bundler timeout in a ValidationError with the bundler prefix', () => {
+    const timeoutErr = Object.assign(new Error('spawnSync node ETIMEDOUT'), {
+      code: 'ETIMEDOUT',
+    });
+    spawnSyncMock.mockReturnValueOnce(makeSpawnError(timeoutErr));
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps());
+      let caught: unknown;
+      try {
+        bundling.local.tryBundle(outputDir, bundling);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(ValidationError);
+      expect(String(caught)).toMatch(/Bundler 'esbuild' timed out/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('wraps a command hook timeout in a ValidationError without a stderr tail', () => {
+    const timeoutErr = Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    spawnSyncMock.mockReturnValueOnce(makeSpawnError(timeoutErr));
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(
+        makeProps({
+          commandHooks: {
+            beforeBundling: () => ['echo before'],
+            afterBundling: () => [],
+            beforeInstall: () => [],
+          },
+        }),
+      );
+      let caught: unknown;
+      try {
+        bundling.local.tryBundle(outputDir, bundling);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(ValidationError);
+      expect(String(caught)).toMatch(/Command hook 'echo before' timed out\.$/);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -167,8 +211,6 @@ describe('Bundling.local.tryBundle', () => {
       );
       bundling.local.tryBundle(outputDir, bundling);
 
-      // Command hooks now run via the platform shell, so the spawned command is
-      // the hook string itself rather than a literal 'bash'.
       const hookIdx = order.indexOf('echo before');
       const nodeIdx = order.indexOf('node');
       expect(hookIdx).toBeGreaterThanOrEqual(0);
@@ -234,8 +276,6 @@ describe('Bundling.local.tryBundle', () => {
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
-      // corepack NOT available so no corepack prefix. Keyed on the command so it
-      // is independent of the order in which the bundler/corepack/install spawn.
       spawnSyncMock.mockImplementation((cmd) =>
         cmd === 'corepack' ? makeErrorResult(1) : makeSuccessResult(),
       );
@@ -253,10 +293,9 @@ describe('Bundling.local.tryBundle', () => {
   it('throws ValidationError when package manager install fails', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
-      // No corepack check: test package.json has no packageManager field.
       spawnSyncMock
-        .mockReturnValueOnce(makeSuccessResult()) // bundler
-        .mockReturnValueOnce(makeErrorResult(1)); // pm install
+        .mockReturnValueOnce(makeSuccessResult())
+        .mockReturnValueOnce(makeErrorResult(1));
 
       const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
       expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
@@ -290,7 +329,6 @@ describe('Bundling.local.tryBundle', () => {
       const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
       bundling.local.tryBundle(outputDir, bundling);
 
-      // The copied patch file and the workspace file must not survive into the asset.
       expect(fs.existsSync(path.join(outputDir, 'patches/pino.patch'))).toBe(false);
       expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
     } finally {
@@ -299,7 +337,6 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('throws when nodeModules set but no package.json found', () => {
-    // Remove the package.json from the temp dir
     fs.unlinkSync(pkgJsonPath);
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
@@ -349,8 +386,6 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('removes install-only config files (e.g. .npmrc) from the asset after install', () => {
-    // .npmrc commonly holds registry auth tokens. It is copied into the output
-    // dir for the install step, but must not remain in the deployed asset.
     fs.writeFileSync(path.join(tmpDir, '.npmrc'), '//registry.npmjs.org/:_authToken=secret');
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
@@ -365,11 +400,9 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('removes install-only config files even when the install fails', () => {
-    // Credential-bearing files (.npmrc) must not be left in the staged asset when
-    // the install throws; the cleanup runs in a finally.
     fs.writeFileSync(path.join(tmpDir, '.npmrc'), '//registry.npmjs.org/:_authToken=secret');
-    spawnSyncMock.mockReturnValueOnce(makeSuccessResult()); // bridge
-    spawnSyncMock.mockReturnValueOnce(makeErrorResult(1)); // install fails
+    spawnSyncMock.mockReturnValueOnce(makeSuccessResult());
+    spawnSyncMock.mockReturnValueOnce(makeErrorResult(1));
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
@@ -396,8 +429,6 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('handles a string stderr that is only whitespace (no tail appended)', () => {
-    // With `encoding` set, spawnSync returns stderr as a string. Whitespace-only
-    // stderr must not append an empty tail to the error message.
     spawnSyncMock.mockReturnValueOnce(makeStderrResult(1, '   \n  '));
 
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
@@ -427,12 +458,6 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('copies lock file from depsLockFilePath even when it is not in projectRoot', () => {
-    // Regression: previously the lock file was re-derived from projectRoot,
-    // so an explicit depsLockFilePath at a non-standard location was silently ignored.
-    //
-    // Setup: tmpDir is projectRoot (pnpm-lock.yaml present → pnpm detected).
-    // customLockFile is the explicit depsLockFilePath; distinct content so
-    // we can verify it is the file that ends up in the output dir.
     const customLockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'custom-lock-'));
     const customLockFile = path.join(customLockDir, 'pnpm-lock.yaml');
     fs.writeFileSync(customLockFile, 'lockfileVersion: custom');
@@ -442,13 +467,12 @@ describe('Bundling.local.tryBundle', () => {
       const bundling = new Bundling(
         makeProps({
           nodeModules: ['pino'],
-          projectRoot: tmpDir, // has its own pnpm-lock.yaml for PM detection
-          depsLockFilePath: customLockFile, // explicit non-standard location
+          projectRoot: tmpDir,
+          depsLockFilePath: customLockFile,
         }),
       );
       bundling.local.tryBundle(outputDir, bundling);
 
-      // The output must use the explicitly supplied lock file, not the one in projectRoot.
       expect(fs.existsSync(path.join(outputDir, 'pnpm-lock.yaml'))).toBe(true);
       expect(fs.readFileSync(path.join(outputDir, 'pnpm-lock.yaml'), 'utf8')).toBe(
         'lockfileVersion: custom',
@@ -460,14 +484,6 @@ describe('Bundling.local.tryBundle', () => {
   });
 
   it('copies bun.lockb under its original basename even when projectRoot has bun.lock', () => {
-    // Regression: the lock file copied into the install dir must keep the basename
-    // of the caller's depsLockFilePath, not whatever lock file sits in projectRoot.
-    // When bun.lock exists in projectRoot but the caller passes depsLockFilePath
-    // pointing to bun.lockb (binary format), the old code would copy the binary
-    // content to outputDir/bun.lock (the wrong name). The fix uses
-    // path.basename(depsLockFilePath) for the destination.
-
-    // Re-configure projectRoot: replace pnpm-lock.yaml with bun.lock so bun is detected.
     fs.unlinkSync(path.join(tmpDir, 'pnpm-lock.yaml'));
     fs.writeFileSync(path.join(tmpDir, 'bun.lock'), '');
 
@@ -486,7 +502,6 @@ describe('Bundling.local.tryBundle', () => {
       );
       bundling.local.tryBundle(outputDir, bundling);
 
-      // Must be written as bun.lockb, not bun.lock.
       expect(fs.existsSync(path.join(outputDir, 'bun.lockb'))).toBe(true);
       expect(fs.readFileSync(path.join(outputDir, 'bun.lockb'), 'utf8')).toBe(
         'BINARY_LOCK_CONTENT',
@@ -509,7 +524,6 @@ describe('Bundling.local.tryBundle', () => {
       );
       bundling.local.tryBundle(outputDir, bundling);
 
-      // Nothing to copy; output dir should have no lock file.
       expect(fs.existsSync(path.join(outputDir, 'pnpm-lock.yaml'))).toBe(false);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
@@ -520,8 +534,8 @@ describe('Bundling.local.tryBundle', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
       spawnSyncMock
-        .mockReturnValueOnce(makeSuccessResult()) // bundler
-        .mockReturnValueOnce(makeSpawnError(new Error('INSTALL_ENOENT'))); // pm install
+        .mockReturnValueOnce(makeSuccessResult())
+        .mockReturnValueOnce(makeSpawnError(new Error('INSTALL_ENOENT')));
 
       const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
       expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow('INSTALL_ENOENT');
@@ -636,17 +650,15 @@ describe('Bundling.local.tryBundle', () => {
   it('includes signal name in error when package manager install is killed by signal', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
-      spawnSyncMock
-        .mockReturnValueOnce(makeSuccessResult()) // bundler
-        .mockReturnValueOnce({
-          status: null,
-          error: undefined,
-          pid: 1,
-          output: [],
-          stdout: Buffer.from(''),
-          stderr: Buffer.from(''),
-          signal: 'SIGTERM',
-        } as ReturnType<typeof spawnSync>); // pm install
+      spawnSyncMock.mockReturnValueOnce(makeSuccessResult()).mockReturnValueOnce({
+        status: null,
+        error: undefined,
+        pid: 1,
+        output: [],
+        stdout: Buffer.from(''),
+        stderr: Buffer.from(''),
+        signal: 'SIGTERM',
+      } as ReturnType<typeof spawnSync>);
 
       const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
       expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow('SIGTERM');
@@ -777,7 +789,7 @@ describe('Bundling.local.tryBundle', () => {
     try {
       const bundling = new Bundling(makeProps());
       expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
-      // The malformed meta must still be cleaned up so it never leaks into the asset.
+
       expect(fs.existsSync(path.join(outputDir, '.lambda-bundle-meta'))).toBe(false);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
@@ -810,14 +822,12 @@ describe('Bundling.local.tryBundle', () => {
   it('resolves a relative bundlerConfig against projectRoot', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
-      // Pass a relative path; expect it to be resolved against projectRoot (tmpDir).
       const bundling = new Bundling(makeProps({ bundlerConfig: 'build.mjs' }));
       bundling.local.tryBundle(outputDir, bundling);
 
       const bridgeCall = spawnSyncMock.mock.calls.find((c) => c[0] === 'node');
       expect(bridgeCall).toBeDefined();
 
-      // args[1] is configPath: must be the absolute resolved path.
       const args = bridgeCall![1] as string[];
       expect(args[1]).toBe(path.join(tmpDir, 'build.mjs'));
     } finally {

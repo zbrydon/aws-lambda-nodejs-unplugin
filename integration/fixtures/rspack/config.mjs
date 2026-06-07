@@ -1,11 +1,3 @@
-/**
- * Rspack config for the Lambda function.
- *
- * Entry and output.path are injected by the CDK bundling driver at synthesis
- * time. For local dev builds add them directly:
- *   entry: './src/handler.ts',
- *   output: { path: path.resolve('dist'), ... },
- */
 export default {
   module: {
     rules: [

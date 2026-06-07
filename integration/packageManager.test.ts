@@ -7,25 +7,12 @@ import * as cdk from 'aws-cdk-lib';
 import { expect, it } from 'vitest';
 import { Bundling } from '../src/bundling.ts';
 
-// Probe from a neutral cwd so a corepack shim does not key off this repo's own
-// `packageManager` field and refuse to run.
 const hasBin = (bin: string): boolean => {
   const probe = spawnSync(bin, ['--version'], { encoding: 'utf8', cwd: os.tmpdir() });
   return !probe.error && probe.status === 0;
 };
 
-/**
- * End-to-end coverage for a non-pnpm package manager. The rest of the
- * integration suite hardcodes pnpm via BASE_BUNDLING_PROPS, so this exercises
- * the npm fallback install path (`npm install`, no lock file) through the same
- * CDK bundling pipeline.
- *
- * To stay offline and deterministic the installed package is a local `file:`
- * dependency rather than a registry package.
- */
 it('installs nodeModules with npm when no lock file or packageManager is present', () => {
-  // A self-contained project root: package.json declares a local file: dep, no
-  // lock file and no packageManager field, so detection falls back to npm.
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'npm-project-'));
   const localDep = path.join(projectRoot, 'local-dep');
   fs.mkdirSync(localDep);
@@ -51,7 +38,6 @@ it('installs nodeModules with npm when no lock file or packageManager is present
     const bundling = new Bundling({
       runtime: aws_lambda.Runtime.NODEJS_24_X,
       architecture: aws_lambda.Architecture.ARM_64,
-      // No lock file on disk; the copy step is skipped and npm detection falls back.
       depsLockFilePath: path.join(projectRoot, 'package-lock.json'),
       projectRoot,
       bundler: 'esbuild',
@@ -78,11 +64,6 @@ it('installs nodeModules with npm when no lock file or packageManager is present
   }
 }, 120_000);
 
-/**
- * Executes a real install for a non-pnpm/npm package manager using an offline
- * local `file:` dependency. Gated on the binary being available so the suite
- * stays green in environments without yarn/bun installed.
- */
 const installsWithPackageManager = (
   pm: 'yarn' | 'bun',
   lockFile: string,
@@ -100,7 +81,7 @@ const installsWithPackageManager = (
     path.join(projectRoot, 'package.json'),
     JSON.stringify({ name: `${pm}-project`, dependencies: { 'local-dep': `file:${localDep}` } }),
   );
-  // Lock file present (no packageManager field) so detection picks pm without corepack.
+
   fs.writeFileSync(path.join(projectRoot, lockFile), '');
   for (const [file, content] of Object.entries(workspaceFiles)) {
     fs.writeFileSync(path.join(projectRoot, file), content);
@@ -135,7 +116,6 @@ const installsWithPackageManager = (
 it.skipIf(!hasBin('yarn'))(
   'installs nodeModules with yarn',
   () => {
-    // node-modules linker so the dep lands in node_modules (yarn berry default is PnP).
     expect(
       installsWithPackageManager('yarn', 'yarn.lock', {
         '.yarnrc.yml': 'nodeLinker: node-modules\nenableImmutableInstalls: false\n',
@@ -153,12 +133,6 @@ it.skipIf(!hasBin('bun'))(
   180_000,
 );
 
-/**
- * Installs a local `file:` dependency whose `postinstall` writes a sentinel file
- * into its own install directory, then reports whether that sentinel exists
- * after the CDK install step. Uses the npm fallback path (no lock file), so it
- * runs everywhere without gating. Returns `{ installed, sentinelRan }`.
- */
 const runPostinstallSentinel = (
   ignoreScripts: boolean,
 ): { installed: boolean; sentinelRan: boolean } => {
@@ -171,7 +145,6 @@ const runPostinstallSentinel = (
       name: 'local-dep',
       version: '1.0.0',
       main: 'index.js',
-      // Lifecycle script: writes a sentinel into the package's own install dir.
       scripts: { postinstall: `node -e "require('fs').writeFileSync('postinstall-ran','1')"` },
     }),
   );
@@ -192,7 +165,6 @@ const runPostinstallSentinel = (
     const bundling = new Bundling({
       runtime: aws_lambda.Runtime.NODEJS_24_X,
       architecture: aws_lambda.Architecture.ARM_64,
-      // No lock file on disk so npm detection falls back to `npm install`.
       depsLockFilePath: path.join(projectRoot, 'package-lock.json'),
       projectRoot,
       bundler: 'esbuild',
@@ -222,8 +194,6 @@ it('does not run dependency lifecycle scripts when ignoreScripts is true', () =>
 }, 120_000);
 
 it('runs dependency lifecycle scripts by default (ignoreScripts false)', () => {
-  // Paired control so the ignoreScripts:true assertion above is meaningful:
-  // the same project with scripts enabled does produce the sentinel.
   const { installed, sentinelRan } = runPostinstallSentinel(false);
   expect(installed, 'local-dep should be installed').toBe(true);
   expect(sentinelRan, 'postinstall sentinel should run by default').toBe(true);

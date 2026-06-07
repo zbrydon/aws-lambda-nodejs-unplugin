@@ -8,16 +8,6 @@ import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
 import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
-/**
- * Integration tests that invoke each supported bundler end-to-end via the
- * same CDK bundling path that NodejsFunction uses in a real synthesis.
- *
- * For each bundler we:
- *   1. Run the bundler against the fixture handler.
- *   2. Assert the output directory contains index.js.
- *   3. Load index.js and assert handler is an exported function.
- *   4. Invoke handler and assert it returns the event (passthrough fixture).
- */
 it.each(SUPPORTED_BUNDLERS)(
   'bundles handler and exports a callable function for bundler: %s',
   async (bundler) => {
@@ -37,12 +27,10 @@ it.each(SUPPORTED_BUNDLERS)(
       const indexPath = path.join(outputDir, 'index.js');
       expect(fs.existsSync(indexPath), `index.js missing in ${outputDir}`).toBe(true);
 
-      // Load the CJS bundle and verify the handler export.
       const require = createRequire(import.meta.url);
       const mod = require(indexPath) as { handler?: unknown };
       expect(typeof mod.handler, 'handler should be a function').toBe('function');
 
-      // The fixture handler is a passthrough — result should equal the input event.
       const event = { source: 'integration-test', bundler };
       const result = await (mod.handler as (e: unknown) => Promise<unknown>)(event);
       expect(result).toEqual(event);
@@ -50,6 +38,6 @@ it.each(SUPPORTED_BUNDLERS)(
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
   },
-  // Bundlers can take several seconds each; give each test enough headroom.
+
   60_000,
 );

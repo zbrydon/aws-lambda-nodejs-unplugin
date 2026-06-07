@@ -2,7 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertSingleEntryFile, rejectSplitChunks, rejectSplittingOption } from './guard.ts';
+import {
+  assertSingleEntryFile,
+  rejectRollupStyleSplitting,
+  rejectSplitChunks,
+  rejectSplittingOption,
+} from './guard.ts';
 
 describe('rejectSplittingOption', () => {
   it.each([undefined, null, false, {}, []])('allows the disabled value %p', (value) => {
@@ -28,6 +33,40 @@ describe('rejectSplitChunks', () => {
     { cacheGroups: { vendors: { chunks: 'all' } } },
   ])('rejects the entry-splitting value %p', (value) => {
     expect(() => rejectSplitChunks(value, 'opt.splitChunks')).toThrow(/opt.splitChunks/);
+  });
+});
+
+describe('rejectRollupStyleSplitting', () => {
+  it('throws for multiple outputs', () => {
+    expect(() => rejectRollupStyleSplitting([{}, {}], undefined)).toThrow(
+      /Multiple Rollup\/Rolldown outputs/,
+    );
+  });
+
+  it('uses the provided label for multiple outputs', () => {
+    expect(() => rejectRollupStyleSplitting([{}, {}], undefined, 'Vite')).toThrow(
+      /Multiple Vite outputs/,
+    );
+  });
+
+  it.each([undefined, [], [{}]])('allows the benign rawOutput %p', (rawOutput) => {
+    expect(() => rejectRollupStyleSplitting(rawOutput, undefined)).not.toThrow();
+  });
+
+  it('rejects manualChunks on the base output', () => {
+    expect(() =>
+      rejectRollupStyleSplitting(undefined, { manualChunks: { vendor: ['a'] } }),
+    ).toThrow(/output\.manualChunks/);
+  });
+
+  it('rejects preserveModules on the base output', () => {
+    expect(() => rejectRollupStyleSplitting(undefined, { preserveModules: true })).toThrow(
+      /output\.preserveModules/,
+    );
+  });
+
+  it('allows a base output without splitting options', () => {
+    expect(() => rejectRollupStyleSplitting(undefined, { dir: 'out' })).not.toThrow();
   });
 });
 

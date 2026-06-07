@@ -10,7 +10,7 @@ import { getBundler } from './bundlers/index.ts';
 import { ValidationError } from './errors.ts';
 import { copyWorkspaceFiles, detectPackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
-import { extractDependencies, findUp, isRecord, parseJsonFile } from './util.ts';
+import { extractDependencies, isRecord, parseJsonFile } from './util.ts';
 
 export interface BundlingProps extends BundlingOptions {
   entry: string;
@@ -20,25 +20,18 @@ export interface BundlingProps extends BundlingOptions {
   projectRoot: string;
 }
 
-/** Human-readable description of how a spawned process terminated. */
+const SPAWN_MAX_BUFFER = 256 * 1024 * 1024;
+
 const describeExit = (result: { signal: NodeJS.Signals | null; status: number | null }): string =>
   result.signal != null
     ? `killed by signal ${result.signal}`
     : `exited with status ${result.status}`;
 
-/**
- * Tail of a captured stderr stream, formatted for appending to a thrown error
- * message. The bridge / install subprocess stderr is captured (piped) and
- * re-emitted to this process's stderr after the subprocess exits, so it scrolls
- * away in the synth output; surfacing the last few lines on the thrown error
- * keeps the real failure reason attached to the generic "exited with status N"
- * message.
- */
 const stderrTail = (stderr: string | Buffer | null | undefined, maxLines = 20): string => {
   if (!stderr) {
     return '';
   }
-  // spawnSync returns a string when `encoding` is set, a Buffer otherwise.
+
   const text = typeof stderr === 'string' ? stderr : stderr.toString('utf-8');
   if (!text) {
     return '';
@@ -47,12 +40,6 @@ const stderrTail = (stderr: string | Buffer | null | undefined, maxLines = 20): 
   return tail ? `\n\n${tail}` : '';
 };
 
-/**
- * Shared spawnSync result check: re-emit any captured stderr, rethrow a spawn
- * error (e.g. ENOENT), and throw a ValidationError on a non-zero exit. When
- * `tail` is set, the last few stderr lines are appended to the thrown message
- * (only meaningful when stderr was piped rather than inherited).
- */
 const checkSpawnResult = (
   result: SpawnSyncReturns<string | Buffer>,
   prefix: string,
@@ -62,6 +49,9 @@ const checkSpawnResult = (
     process.stderr.write(result.stderr);
   }
   if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+      throw new ValidationError(`${prefix} timed out.${tail ? stderrTail(result.stderr) : ''}`);
+    }
     throw result.error;
   }
   if (result.status !== 0) {
@@ -127,6 +117,7 @@ export class Bundling implements cdk.BundlingOptions {
             cwd: props.projectRoot,
             timeout: props.timeout,
             encoding: 'utf-8',
+            maxBuffer: SPAWN_MAX_BUFFER,
           },
         );
 
@@ -160,7 +151,10 @@ export class Bundling implements cdk.BundlingOptions {
             ignoreScripts: props.ignoreScripts,
           });
 
-          const pkgJsonPath = findUp('package.json', path.dirname(props.entry));
+          // detectPackageManager already walked from the handler dir up to
+          // projectRoot, so reuse the nearest package.json it found rather than
+          // re-walking the same chain with findUp.
+          const pkgJsonPath = pm.nearestPackageJson;
           if (!pkgJsonPath) {
             throw new ValidationError(
               'Cannot find a package.json. Using nodeModules requires a package.json.',
@@ -217,6 +211,7 @@ export class Bundling implements cdk.BundlingOptions {
               cwd: outputDir,
               timeout: props.timeout,
               encoding: 'utf-8',
+              maxBuffer: SPAWN_MAX_BUFFER,
             });
 
             checkSpawnResult(installResult, `Package manager '${pm.name}' install`, { tail: true });
@@ -253,9 +248,6 @@ export class Bundling implements cdk.BundlingOptions {
   }
 
   private shell(cmd: string, cwd: string): void {
-    // Run through the platform default shell (`shell: true`) so command hooks
-    // work on Windows (cmd.exe) as well as POSIX systems, rather than hardcoding
-    // `bash`, which is frequently absent on Windows and minimal containers.
     const result = spawnSync(cmd, [], {
       env: process.env,
       stdio: ['ignore', 'inherit', 'inherit'],
@@ -263,7 +255,7 @@ export class Bundling implements cdk.BundlingOptions {
       shell: true,
       timeout: this.props.timeout,
     });
-    // stderr is inherited (not piped) here, so there is no captured tail to append.
+
     checkSpawnResult(result, `Command hook '${cmd}'`);
   }
 }

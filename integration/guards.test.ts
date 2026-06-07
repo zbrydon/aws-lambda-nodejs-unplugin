@@ -6,11 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { Bundling } from '../src/bundling.ts';
 import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
-/**
- * End-to-end coverage for the single-file / no-code-splitting guards in the
- * bundler bridges (which run in spawned subprocesses and are excluded from unit
- * coverage). Each case bundles a real config and asserts the bridge's behavior.
- */
 const bundle = (overrides: Record<string, unknown>, outputDir: string): boolean =>
   new Bundling({
     ...BASE_BUNDLING_PROPS,
@@ -152,7 +147,7 @@ describe('single-file guards', () => {
           outputDir,
         ),
       ).toBe(true);
-      // Empty output -> format defaults to 'es' -> single index.mjs.
+
       expect(fs.existsSync(path.join(outputDir, 'index.mjs'))).toBe(true);
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });

@@ -4,11 +4,6 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const esbuildLoader = require.resolve('../esbuild/loader.cjs');
 
-/**
- * Webpack config that enables chunk splitting via optimization.splitChunks,
- * which the single-file Lambda asset model does not support. The webpack bridge
- * must reject this before building.
- */
 export default {
   module: {
     rules: [

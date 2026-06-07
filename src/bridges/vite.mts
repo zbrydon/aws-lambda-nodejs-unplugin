@@ -2,7 +2,7 @@ import { build } from 'vite';
 import type { InlineConfig } from 'vite';
 
 import { asRecord, asString } from './config.ts';
-import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { assertSingleEntryFile, rejectRollupStyleSplitting } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
@@ -18,15 +18,10 @@ const baseOutput = asRecord(Array.isArray(rawOutput) ? rawOutput[0] : rawOutput)
 // Vite 6 SSR defaults to 'es' when no format is specified.
 const format = asString(baseOutput?.format) ?? 'es';
 
-// Reject splitting options that would emit sibling chunks the asset never ships.
-if (Array.isArray(rawOutput) && rawOutput.length > 1) {
-  throw new Error(
-    'Multiple Vite build outputs are not supported: the Lambda handler is a single file. ' +
-      'Provide a single `build.rollupOptions.output` (or `rolldownOptions.output`).',
-  );
-}
-rejectSplittingOption(baseOutput?.manualChunks, 'Vite output.manualChunks');
-rejectSplittingOption(baseOutput?.preserveModules, 'Vite output.preserveModules');
+// Reject multi-output configs and the splitting options that would emit sibling
+// chunks the asset never ships. Vite is Rollup/Rolldown-backed, so this reuses
+// the same guard as the rollup/rolldown bridges.
+rejectRollupStyleSplitting(rawOutput, baseOutput, 'Vite');
 
 // Strip both keys from the user build config so the canonical merged options
 // below are the only ones present.

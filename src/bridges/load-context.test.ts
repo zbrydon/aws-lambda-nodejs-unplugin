@@ -16,7 +16,6 @@ describe('loadBridgeContext', () => {
     tmpDirs.length = 0;
   });
 
-  /** Writes a temp config module whose `export default` is the given source. */
   const writeConfig = (defaultExpr: string): string => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'load-context-'));
     tmpDirs.push(dir);

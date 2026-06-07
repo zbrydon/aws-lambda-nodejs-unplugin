@@ -7,12 +7,6 @@ import { Bundling } from '../src/bundling.ts';
 import { ValidationError } from '../src/errors.ts';
 import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
-/**
- * Integration tests for commandHooks. Each test runs a real shell command and
- * verifies its side-effect on the filesystem. A single fast bundler (esbuild)
- * is used since hook behaviour is bundler-agnostic.
- */
-
 const baseBundlingProps = {
   ...BASE_BUNDLING_PROPS,
   bundler: 'esbuild' as const,
@@ -58,7 +52,6 @@ it('afterBundling hook runs after the bundle is produced', () => {
       ...baseBundlingProps,
       commandHooks: {
         beforeBundling: () => [],
-        // The hook reads index.js to confirm the bundler ran first, then writes a sentinel.
         afterBundling: (_inputDir, outDir) => [
           `test -f ${path.join(outDir, 'index.js')} && touch ${path.join(outDir, 'after-sentinel.txt')}`,
         ],
@@ -115,8 +108,6 @@ it('beforeInstall hook runs before nodeModules are installed', () => {
       commandHooks: {
         beforeBundling: () => [],
         afterBundling: () => [],
-        // The hook asserts node_modules does not exist yet, proving it runs
-        // before the install step, then writes a sentinel.
         beforeInstall: (_inputDir, outDir) => [
           `test ! -e ${path.join(outDir, 'node_modules')} && touch ${path.join(outDir, 'before-install-sentinel.txt')}`,
         ],
