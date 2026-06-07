@@ -478,6 +478,32 @@ describe('copyWorkspaceFiles', () => {
     );
   });
 
+  it('throws when a pnpm patch path is a symlink that escapes the project root', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-outside-'));
+    try {
+      fs.writeFileSync(path.join(outsideDir, 'evil.patch'), 'diff');
+      fs.mkdirSync(path.join(srcDir, 'patches'));
+      // Lexically inside srcDir, but the symlink resolves outside it.
+      fs.symlinkSync(
+        path.join(outsideDir, 'evil.patch'),
+        path.join(srcDir, 'patches/constructs.patch'),
+      );
+
+      const workspaceContent = [
+        'packages: []',
+        'patchedDependencies:',
+        '  "constructs@3.22.4": patches/constructs.patch',
+      ].join('\n');
+      fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
+
+      expect(() => copyWorkspaceFiles(srcDir, destDir, makeInfo('pnpm'), ['constructs'])).toThrow(
+        /via symlink/,
+      );
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it('skips files that do not exist in projectRoot', () => {
     const info = {
       name: 'yarn' as const,

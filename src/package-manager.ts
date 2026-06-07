@@ -15,11 +15,16 @@ enum LockFile {
 }
 
 /** Known package manager names, used for validation of devEngines entries. */
-const KNOWN_PM_NAMES = new Set<PackageManagerName>(['npm', 'yarn', 'pnpm', 'bun']);
+const KNOWN_PM_NAMES: ReadonlySet<string> = new Set<PackageManagerName>([
+  'npm',
+  'yarn',
+  'pnpm',
+  'bun',
+]);
 
 /** Type guard that narrows an unknown value to PackageManagerName. */
 const isPackageManagerName = (value: unknown): value is PackageManagerName =>
-  typeof value === 'string' && KNOWN_PM_NAMES.has(value as PackageManagerName);
+  typeof value === 'string' && KNOWN_PM_NAMES.has(value);
 
 /** Ordered list: first match wins. */
 const LOCK_FILE_PM: [string, PackageManagerName][] = [
@@ -183,17 +188,9 @@ export const detectPackageManager = (
   }
 
   if (lockFilePath) {
-    const match = LOCK_FILE_PM.find(([lockFile]) => lockFile === path.basename(lockFilePath));
-    if (match) {
-      return buildInfo(
-        match[1],
-        undefined,
-        false,
-        undefined,
-        projectRoot,
-        ignoreScripts,
-        lockFilePath,
-      );
+    const name = lockFilePackageManager(path.basename(lockFilePath));
+    if (name) {
+      return buildInfo(name, undefined, false, undefined, projectRoot, ignoreScripts, lockFilePath);
     }
   }
 
@@ -330,10 +327,10 @@ const filterPnpmWorkspaceYaml = (
   nodeModules: string[],
   projectRoot: string,
   outputDir: string,
-): string => {
+): { content: string; copiedFiles: string[] } => {
   const sectionMatch = content.match(/^(patchedDependencies:\n)((?:[ \t]+[^\n]*\n?)*)/m);
   if (!sectionMatch) {
-    return content;
+    return { content, copiedFiles: [] };
   }
 
   const fullMatch = sectionMatch[0];
@@ -352,6 +349,7 @@ const filterPnpmWorkspaceYaml = (
     }
   }
 
+  const copiedFiles: string[] = [];
   for (const [, relativePath] of relevantEntries) {
     const src = path.join(projectRoot, relativePath);
     const dest = path.join(outputDir, relativePath);
@@ -366,21 +364,35 @@ const filterPnpmWorkspaceYaml = (
     if (!fs.existsSync(src)) {
       continue;
     }
+    // The lexical isInside check above can be defeated by a symlink that points
+    // outside projectRoot, so resolve the real path before copying its contents.
+    const realSrc = fs.realpathSync(src);
+    if (!isInside(fs.realpathSync(projectRoot), realSrc)) {
+      throw new ValidationError(
+        `Refusing to copy pnpm patch '${relativePath}': it resolves (via symlink) outside the project root.`,
+      );
+    }
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+    fs.copyFileSync(realSrc, dest);
+    copiedFiles.push(dest);
   }
 
   if (relevantEntries.length === 0) {
-    return content.replace(fullMatch, '');
+    return { content: content.replace(fullMatch, ''), copiedFiles };
   }
 
   const newLines = relevantEntries.map(([key, val]) => `  '${key}': ${val}`);
-  return content.replace(fullMatch, `${header}${newLines.join('\n')}\n`);
+  return { content: content.replace(fullMatch, `${header}${newLines.join('\n')}\n`), copiedFiles };
 };
 
 /**
  * Copy workspace config files (e.g. pnpm-workspace.yaml, .npmrc) from
  * `projectRoot` into `outputDir`, skipping any that don't exist.
+ *
+ * Returns the absolute paths of any extra files staged into `outputDir` beyond
+ * the `pm.workspaceFiles` set (currently pnpm patch files copied alongside a
+ * filtered `pnpm-workspace.yaml`) so the caller can remove them from the asset
+ * after install.
  */
 export const copyWorkspaceFiles = (
   projectRoot: string,
@@ -388,7 +400,8 @@ export const copyWorkspaceFiles = (
   pm: PackageManagerInfo,
   nodeModules: string[] = [],
   ignoreScripts = false,
-): void => {
+): string[] => {
+  const stagedFiles: string[] = [];
   for (const file of pm.workspaceFiles) {
     const src = path.join(projectRoot, file);
     if (!fs.existsSync(src)) {
@@ -397,7 +410,9 @@ export const copyWorkspaceFiles = (
     const dest = path.join(outputDir, file);
     if (pm.name === 'pnpm' && file === 'pnpm-workspace.yaml') {
       const content = fs.readFileSync(src, 'utf8');
-      fs.writeFileSync(dest, filterPnpmWorkspaceYaml(content, nodeModules, projectRoot, outputDir));
+      const filtered = filterPnpmWorkspaceYaml(content, nodeModules, projectRoot, outputDir);
+      fs.writeFileSync(dest, filtered.content);
+      stagedFiles.push(...filtered.copiedFiles);
     } else {
       fs.copyFileSync(src, dest);
     }
@@ -406,4 +421,6 @@ export const copyWorkspaceFiles = (
   if (ignoreScripts) {
     injectIgnoreScripts(outputDir, pm);
   }
+
+  return stagedFiles;
 };

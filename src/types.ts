@@ -10,6 +10,7 @@ export const SUPPORTED_BUNDLERS = [
 
 export type SupportedBundler = (typeof SUPPORTED_BUNDLERS)[number];
 
+/** Hooks returning shell command strings run at bundling/install boundaries. */
 export interface ICommandHooks {
   beforeBundling(inputDir: string, outputDir: string): string[];
   afterBundling(inputDir: string, outputDir: string): string[];
@@ -38,7 +39,8 @@ export interface BundlingOptions {
    * `nodeModules` install, as defense-in-depth against a compromised transitive
    * dependency. Implemented by injecting the setting into the staged
    * package-manager config (`.npmrc` `ignore-scripts=true` for npm/pnpm,
-   * `.yarnrc.yml` `enableScripts: false` for yarn). Has no effect for bun.
+   * `.yarnrc.yml` `enableScripts: false` for yarn; the `--ignore-scripts`
+   * install flag for bun, which has no config-file equivalent).
    * Defaults to false to match upstream `NodejsFunction` behavior.
    */
   ignoreScripts?: boolean;
