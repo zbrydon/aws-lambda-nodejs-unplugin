@@ -126,6 +126,8 @@ The file must export a default configuration object for the chosen bundler. The 
 
 The config does **not** need to read environment variables or import anything from this package. See [Bundler configs](bundlers.md) for per-bundler examples.
 
+> **Security:** this file is `import()`-ed and its top-level code runs with the full privileges and environment of the synth process. Treat it as trusted code, the same as any other build script in your project. See [Security / trust model](../README.md#security--trust-model).
+
 #### `nodeModules`
 
 ```ts
@@ -203,6 +205,8 @@ Each method receives:
 Return an array of shell command strings. Each runs through the platform default shell (`cmd.exe` on Windows, `/bin/sh` on POSIX), not bash specifically. An empty array skips the hook. Commands run in order.
 
 `beforeInstall` only runs when `nodeModules` is non-empty.
+
+> **Security:** returned commands execute through the shell with the full environment of the synth process. Treat them as trusted code and never interpolate untrusted input into the returned strings. See [Security / trust model](../README.md#security--trust-model).
 
 ---
 

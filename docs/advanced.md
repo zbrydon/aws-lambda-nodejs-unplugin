@@ -33,12 +33,14 @@ After bundling completes, the driver:
 
 ### Package manager detection
 
-The driver reads `projectRoot/package.json` and detects the package manager in this order:
+The driver detects the package manager in this order:
 
 1. `packageManager` field (e.g. `"pnpm@9.0.0"`). Also activates corepack if available.
 2. `devEngines.packageManager.name` field.
 3. Lock file present in `projectRoot` (`pnpm-lock.yaml` > `yarn.lock` > `bun.lock` > `bun.lockb` > `package-lock.json`).
 4. Falls back to npm.
+
+For steps 1 and 2 the `package.json` chain is walked nearest-first, from the entry file's directory up to `projectRoot`, so a `packageManager` / `devEngines` field declared in a monorepo leaf package wins over the repo root (mirroring how `nodeModules` versions are resolved above). When an explicit `projectRoot` is passed that the entry is not inside, only `projectRoot/package.json` is consulted.
 
 Install commands used:
 
