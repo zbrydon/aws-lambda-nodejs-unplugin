@@ -1,32 +1,38 @@
 import { rspack } from '@rspack/core';
 import type { Configuration } from '@rspack/core';
+import { asRecord } from './config.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
 const { entry, outputDir, userConfig } = await loadBridgeContext();
 
-// rspack only emits ESM when output.module is true (it also requires
-// experiments.outputModule), so output.module is the authoritative signal.
-const format = userConfig.output?.module === true ? 'esm' : undefined;
+const output = asRecord(userConfig.output);
+const experiments = asRecord(userConfig.experiments);
+const optimization = asRecord(userConfig.optimization);
+
+// rspack emits ESM when output.module is true (which also requires
+// experiments.outputModule). Accept either signal so a config that enables ESM
+// via experiments.outputModule alone is not mislabelled and shipped as CJS.
+const format = output?.module === true || experiments?.outputModule === true ? 'esm' : undefined;
 
 // Reject chunk-splitting options that would emit sibling chunks the asset never ships.
-rejectSplittingOption(userConfig.optimization?.splitChunks, 'rspack optimization.splitChunks');
-rejectSplittingOption(userConfig.optimization?.runtimeChunk, 'rspack optimization.runtimeChunk');
+rejectSplittingOption(optimization?.splitChunks, 'rspack optimization.splitChunks');
+rejectSplittingOption(optimization?.runtimeChunk, 'rspack optimization.runtimeChunk');
 
-const finalConfig: Configuration = {
+const finalConfig = {
   ...userConfig,
   entry,
   output: {
-    ...userConfig.output,
+    ...output,
     path: outputDir,
     filename: entryFileName(format),
   },
   // ESM output requires experiments.outputModule; inject it so a config that
   // sets only output.module does not error or emit a CJS file that diverges
   // from the recorded ESM format.
-  ...(format === 'esm' ? { experiments: { ...userConfig.experiments, outputModule: true } } : {}),
-};
+  ...(format === 'esm' ? { experiments: { ...experiments, outputModule: true } } : {}),
+} as Configuration;
 
 const compiler = rspack(finalConfig);
 

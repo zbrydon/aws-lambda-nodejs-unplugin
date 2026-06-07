@@ -1,3 +1,4 @@
+import { asRecord, asString } from './config.ts';
 import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
@@ -12,15 +13,18 @@ export const runRollBridge = async <TInput, TOutput>(
 ): Promise<void> => {
   const { entry, outputDir, userConfig } = await loadBridgeContext();
 
+  // userConfig is an arbitrary module validated only as an object; assert the
+  // bundler input shape when merging the CDK-controlled entry into it.
   const inputOptions = {
     ...userConfig,
     input: entry,
-  };
+  } as TInput;
 
   const rawOutput = userConfig.output;
   // Fall back to {} in both branches so an explicit empty `output: []` does not
   // leave baseRaw undefined (which would crash the `baseRaw.format` read below).
-  const baseRaw = (Array.isArray(rawOutput) ? rawOutput[0] : rawOutput) ?? {};
+  const baseRaw: Record<string, unknown> =
+    asRecord(Array.isArray(rawOutput) ? rawOutput[0] : rawOutput) ?? {};
   const extraRaw = Array.isArray(rawOutput) ? rawOutput.slice(1) : [];
 
   // Reject multi-output configs: every output would be written to the same dir
@@ -42,9 +46,9 @@ export const runRollBridge = async <TInput, TOutput>(
   // recording null, otherwise the parent would skip writing `type: module` and
   // the ESM handler would fail to load at runtime. Format detection uses the
   // first (base) output only; the Lambda handler is always a single entry.
-  const format: string = baseRaw.format ?? 'es';
+  const format = asString(baseRaw.format) ?? 'es';
 
-  const makeOutputOptions = (o: object) =>
+  const makeOutputOptions = (o: Record<string, unknown>) =>
     ({
       ...o,
       dir: outputDir,
