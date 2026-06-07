@@ -10,19 +10,8 @@ const { entry, outputDir, userConfig } = await loadBridgeContext();
 const compilation = asRecord(userConfig.compilation);
 const output = asRecord(compilation?.output);
 
-// Farm emits ESM (`export { handler }`) when output.format is omitted - verified
-// empirically with @farmfe/core under both the default and `targetEnv: 'node'`.
-// Default to 'esm' (matching the vite/rollup/rolldown bridges) so the handler is
-// written as index.mjs with `type: module`; defaulting to CJS would write an
-// `export`-bearing file to index.js and the Lambda would fail to load.
 const format = asString(output?.format) ?? 'esm';
 
-// Reject the explicit chunk-creating knobs at config time. Farm splits output
-// via `compilation.partialBundling`; `groups` and `enforceResources` are the
-// fields that force named chunks into being, mirroring how the other bridges
-// reject manualChunks / splitChunks. The numeric tuning fields tune the default
-// partial-bundling algorithm rather than forcing a split, so they are left to
-// the post-build assertion below.
 const partialBundling = asRecord(compilation?.partialBundling);
 rejectSplittingOption(partialBundling?.groups, 'compilation.partialBundling.groups');
 rejectSplittingOption(
@@ -38,14 +27,11 @@ await build({
     output: {
       ...output,
       path: outputDir,
-      // Enforce [entryName].(m)js so the output is always index.js (CJS) or
-      // index.mjs (ESM) regardless of the user's entryFilename.
+
       entryFilename: isEsmFormat(format) ? '[entryName].mjs' : '[entryName].js',
     },
   },
 } satisfies Parameters<typeof build>[0]);
-// Backstop for any split the config-level guard above cannot see: numeric
-// partialBundling thresholds (targetMaxSize, etc.) and dynamic import()
-// splitting are only observable after the build, so assert a single entry file.
+
 assertSingleEntryFile(outputDir, format);
 writeBundleMeta(outputDir, format);

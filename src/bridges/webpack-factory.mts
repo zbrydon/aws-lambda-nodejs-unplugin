@@ -30,12 +30,8 @@ export const runWebpackBridge = async (
   const experiments = asRecord(userConfig.experiments);
   const optimization = asRecord(userConfig.optimization);
 
-  // Emit ESM when output.module is true (which also requires
-  // experiments.outputModule). Accept either signal so a config that enables ESM
-  // via experiments.outputModule alone is not mislabelled and shipped as CJS.
   const format = output?.module === true || experiments?.outputModule === true ? 'esm' : undefined;
 
-  // Reject chunk-splitting options that would emit sibling chunks the asset never ships.
   rejectSplitChunks(optimization?.splitChunks, 'optimization.splitChunks');
   rejectSplittingOption(optimization?.runtimeChunk, 'optimization.runtimeChunk');
 
@@ -46,14 +42,10 @@ export const runWebpackBridge = async (
       ...output,
       path: outputDir,
       filename: entryFileName(format),
-      // Force output.module for ESM. webpack derives this from
-      // experiments.outputModule, but rspack does not - without it rspack emits a
-      // CJS bundle into index.mjs that fails to load at runtime. Setting it is
-      // valid and safe for webpack too (both signals are set below).
+
       ...(format === 'esm' ? { module: true } : {}),
     },
-    // ESM output also requires experiments.outputModule; inject it so a config
-    // that sets only output.module does not error.
+
     ...(format === 'esm' ? { experiments: { ...experiments, outputModule: true } } : {}),
   };
 
@@ -72,7 +64,7 @@ export const runWebpackBridge = async (
       compiler.close(() => resolve());
     });
   });
-  // Backstop for dynamic import() splitting, undetectable from config.
+
   assertSingleEntryFile(outputDir, format);
   writeBundleMeta(outputDir, format);
 };
