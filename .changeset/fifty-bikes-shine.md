@@ -1,5 +1,5 @@
 ---
-"aws-lambda-nodejs-unplugin": patch
+'aws-lambda-nodejs-unplugin': patch
 ---
 
 Initial release of `aws-lambda-nodejs-unplugin`.
