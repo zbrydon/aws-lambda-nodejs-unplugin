@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { assertSingleEntryFile, rejectSplitChunks, rejectSplittingOption } from './guard.ts';
 
 describe('rejectSplittingOption', () => {
   it.each([undefined, null, false, {}, []])('allows the disabled value %p', (value) => {
@@ -11,6 +11,23 @@ describe('rejectSplittingOption', () => {
 
   it.each([true, 'all', { vendors: true }, ['a']])('rejects the configured value %p', (value) => {
     expect(() => rejectSplittingOption(value, 'opt.manualChunks')).toThrow(/opt.manualChunks/);
+  });
+});
+
+describe('rejectSplitChunks', () => {
+  it.each([undefined, null, false, {}, { chunks: 'async' }, { cacheGroups: {} }])(
+    'allows the benign value %p',
+    (value) => {
+      expect(() => rejectSplitChunks(value, 'opt.splitChunks')).not.toThrow();
+    },
+  );
+
+  it.each([
+    { chunks: 'all' },
+    { chunks: 'initial' },
+    { cacheGroups: { vendors: { chunks: 'all' } } },
+  ])('rejects the entry-splitting value %p', (value) => {
+    expect(() => rejectSplitChunks(value, 'opt.splitChunks')).toThrow(/opt.splitChunks/);
   });
 });
 
