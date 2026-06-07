@@ -72,6 +72,74 @@ describe('single-file guards', () => {
     }
   }, 60_000);
 
+  it('rejects webpack optimization.splitChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-webpack-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'webpack',
+            bundlerConfig: path.resolve('integration/fixtures/webpack/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects rspack optimization.splitChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-rspack-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'rspack',
+            bundlerConfig: path.resolve('integration/fixtures/rspack/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects vite output.manualChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-vite-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'vite',
+            bundlerConfig: path.resolve('integration/fixtures/vite/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects rolldown output.manualChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-rolldown-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'rolldown',
+            bundlerConfig: path.resolve('integration/fixtures/rolldown/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('accepts an empty rollup output and emits a single ESM handler', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-empty-'));
     try {
