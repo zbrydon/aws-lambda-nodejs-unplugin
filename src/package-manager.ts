@@ -165,15 +165,15 @@ export const detectPackageManager = (
         const name = m[1] as PackageManagerName;
         const version = m[2];
         const corepack = isCorepackAvailable();
-        return buildInfo(
+        return buildInfo({
           name,
           version,
-          corepack,
-          parsed.packageManager,
+          useCorepack: corepack,
+          packageManagerField: parsed.packageManager,
           projectRoot,
           ignoreScripts,
           lockFilePath,
-        );
+        });
       }
     }
 
@@ -182,7 +182,15 @@ export const detectPackageManager = (
       if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
         const name = devEnginesPm.name;
         const version = typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
-        return buildInfo(name, version, false, undefined, projectRoot, ignoreScripts, lockFilePath);
+        return buildInfo({
+          name,
+          version,
+          useCorepack: false,
+          packageManagerField: undefined,
+          projectRoot,
+          ignoreScripts,
+          lockFilePath,
+        });
       }
     }
   }
@@ -190,25 +198,41 @@ export const detectPackageManager = (
   if (lockFilePath) {
     const name = lockFilePackageManager(path.basename(lockFilePath));
     if (name) {
-      return buildInfo(name, undefined, false, undefined, projectRoot, ignoreScripts, lockFilePath);
+      return buildInfo({
+        name,
+        version: undefined,
+        useCorepack: false,
+        packageManagerField: undefined,
+        projectRoot,
+        ignoreScripts,
+        lockFilePath,
+      });
     }
   }
 
   for (const [lockFile, pmName] of LOCK_FILE_PM) {
     if (fs.existsSync(path.join(projectRoot, lockFile))) {
-      return buildInfo(
-        pmName,
-        undefined,
-        false,
-        undefined,
+      return buildInfo({
+        name: pmName,
+        version: undefined,
+        useCorepack: false,
+        packageManagerField: undefined,
         projectRoot,
         ignoreScripts,
         lockFilePath,
-      );
+      });
     }
   }
 
-  return buildInfo('npm', undefined, false, undefined, projectRoot, ignoreScripts, lockFilePath);
+  return buildInfo({
+    name: 'npm',
+    version: undefined,
+    useCorepack: false,
+    packageManagerField: undefined,
+    projectRoot,
+    ignoreScripts,
+    lockFilePath,
+  });
 };
 
 const buildInstallCommand = (
@@ -262,15 +286,25 @@ const buildInstallCommand = (
   }
 };
 
-const buildInfo = (
-  name: PackageManagerName,
-  version: string | undefined,
-  useCorepack: boolean,
-  packageManagerField: string | undefined,
-  projectRoot: string,
-  ignoreScripts: boolean,
-  lockFilePath: string | undefined,
-): PackageManagerInfo => ({
+interface BuildInfoArgs {
+  name: PackageManagerName;
+  version: string | undefined;
+  useCorepack: boolean;
+  packageManagerField: string | undefined;
+  projectRoot: string;
+  ignoreScripts: boolean;
+  lockFilePath: string | undefined;
+}
+
+const buildInfo = ({
+  name,
+  version,
+  useCorepack,
+  packageManagerField,
+  projectRoot,
+  ignoreScripts,
+  lockFilePath,
+}: BuildInfoArgs): PackageManagerInfo => ({
   name,
   version,
   useCorepack,

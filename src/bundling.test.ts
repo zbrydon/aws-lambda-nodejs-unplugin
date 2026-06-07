@@ -776,7 +776,7 @@ describe('Bundling.local.tryBundle', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
     try {
       const bundling = new Bundling(makeProps());
-      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(SyntaxError);
+      expect(() => bundling.local.tryBundle(outputDir, bundling)).toThrow(ValidationError);
       // The malformed meta must still be cleaned up so it never leaks into the asset.
       expect(fs.existsSync(path.join(outputDir, '.lambda-bundle-meta'))).toBe(false);
     } finally {

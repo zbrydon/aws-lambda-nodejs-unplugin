@@ -10,7 +10,7 @@ import { getBundler } from './bundlers/index.ts';
 import { ValidationError } from './errors.ts';
 import { copyWorkspaceFiles, detectPackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
-import { extractDependencies, findUp, isRecord } from './util.ts';
+import { extractDependencies, findUp, isRecord, parseJsonFile } from './util.ts';
 
 export interface BundlingProps extends BundlingOptions {
   entry: string;
@@ -140,7 +140,7 @@ export class Bundling implements cdk.BundlingOptions {
           // on). The `finally` only guarantees cleanup so a malformed meta file
           // never leaks into the bundled asset.
           try {
-            const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const parsed: unknown = parseJsonFile(metaPath);
             const format =
               isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : undefined;
             isEsm = isEsmFormat(format);
