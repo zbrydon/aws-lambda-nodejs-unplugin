@@ -37,6 +37,8 @@ beforeEach(() => {
   lockFile = path.join(tmpDir, 'pnpm-lock.yaml');
   fs.writeFileSync(entryFile, 'export const handler = () => {};');
   fs.writeFileSync(lockFile, '');
+  fs.writeFileSync(path.join(tmpDir, 'build.mjs'), 'export default {};');
+  fs.writeFileSync(path.join(tmpDir, 'rollup.config.mjs'), 'export default {};');
   fs.writeFileSync(
     path.join(tmpDir, 'package.json'),
     JSON.stringify({ name: 'test', dependencies: {} }),
@@ -175,6 +177,38 @@ describe('NodejsFunction', () => {
         Handler: 'index.myFunction',
       }),
     ).not.toThrow();
+  });
+
+  it('throws when the bundler config does not exist', () => {
+    const scope = makeScope();
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          depsLockFilePath: lockFile,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: path.join(tmpDir, 'missing.mjs'),
+          },
+        }),
+    ).toThrow(/Cannot find bundler config/);
+  });
+
+  it('throws when the bundler config path is a directory', () => {
+    const scope = makeScope();
+    const dirConfig = path.join(tmpDir, 'config-dir.mjs');
+    fs.mkdirSync(dirConfig);
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          depsLockFilePath: lockFile,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: dirConfig,
+          },
+        }),
+    ).toThrow(/is not a file/);
   });
 
   it('throws ValidationError for non-NODEJS runtime', () => {

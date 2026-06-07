@@ -72,6 +72,7 @@ export class NodejsFunction extends lambda.Function {
     const entry = path.resolve(findEntry(id, props.entry));
     const depsLockFilePath = findLockFile(props.depsLockFilePath);
     const projectRoot = path.resolve(props.projectRoot ?? path.dirname(depsLockFilePath));
+    const bundlerConfig = findBundlerConfig(props.bundling.bundlerConfig, projectRoot);
 
     const handlerFn = resolveHandlerFn(props.handler);
 
@@ -80,6 +81,7 @@ export class NodejsFunction extends lambda.Function {
       runtime,
       code: Bundling.bundle({
         ...props.bundling,
+        bundlerConfig,
         entry,
         runtime,
         architecture,
@@ -112,6 +114,23 @@ const resolveHandlerFn = (handler?: string): string => {
     );
   }
   return handlerFn;
+};
+
+// Resolve the bundler config to an absolute path (relative paths are resolved
+// against projectRoot) and verify it exists at synth time. Without this the
+// missing file only surfaces as an opaque "bridge exited with status 1" from the
+// spawned subprocess that import()s it.
+const findBundlerConfig = (bundlerConfig: string, projectRoot: string): string => {
+  const resolved = path.isAbsolute(bundlerConfig)
+    ? bundlerConfig
+    : path.resolve(projectRoot, bundlerConfig);
+  if (!fs.existsSync(resolved)) {
+    throw new ValidationError(`Cannot find bundler config at ${resolved}.`);
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw new ValidationError(`Bundler config path ${resolved} is not a file.`);
+  }
+  return resolved;
 };
 
 const findLockFile = (depsLockFilePath?: string): string => {
