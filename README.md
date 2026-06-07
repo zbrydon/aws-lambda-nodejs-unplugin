@@ -77,6 +77,7 @@ import { NodejsFunction } from 'aws-lambda-nodejs-unplugin';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 
 new NodejsFunction(this, 'my-function', {
+  entry: 'src/my-function.ts',
   runtime: lambda.Runtime.NODEJS_24_X,
   bundling: {
     bundler: 'esbuild',
@@ -112,7 +113,7 @@ Treat your bundler config, command hooks, and dependency tree as trusted code.
 To reduce exposure:
 
 - Set [`ignoreScripts: true`](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/api-reference.md#ignorescripts)
-  to disable package lifecycle scripts during the `nodeModules` install — the
+  to disable package lifecycle scripts during the `nodeModules` install, the
   safer default for an untrusted or large transitive dependency tree.
 - Set [`timeout`](https://github.com/zbrydon/aws-lambda-nodejs-unplugin/blob/main/docs/api-reference.md#timeout)
   to bound how long any single subprocess may run, so a hung or runaway process

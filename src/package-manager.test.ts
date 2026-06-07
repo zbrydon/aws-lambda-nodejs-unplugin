@@ -20,7 +20,6 @@ const spawnSyncMock = vi.mocked(spawnSync);
 
 describe('isCorepackAvailable', () => {
   beforeEach(() => {
-    // Availability is memoized at module scope; reset so each case probes afresh.
     resetCorepackCache();
   });
 
@@ -63,6 +62,33 @@ describe('isCorepackAvailable', () => {
     expect(isCorepackAvailable()).toBe(false);
   });
 
+  it('does not memoize a transient probe timeout and re-probes on the next call', () => {
+    spawnSyncMock.mockReturnValueOnce({
+      status: null,
+      error: Object.assign(new Error('spawnSync corepack ETIMEDOUT'), { code: 'ETIMEDOUT' }),
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(''),
+      stderr: Buffer.from(''),
+      signal: 'SIGTERM',
+    });
+
+    spawnSyncMock.mockReturnValueOnce({
+      status: 0,
+      error: undefined,
+      pid: 1,
+      output: [],
+      stdout: Buffer.from('0.24.0'),
+      stderr: Buffer.from(''),
+      signal: null,
+    });
+
+    const callsBefore = spawnSyncMock.mock.calls.length;
+    expect(isCorepackAvailable()).toBe(false);
+    expect(isCorepackAvailable()).toBe(true);
+    expect(spawnSyncMock.mock.calls).toHaveLength(callsBefore + 2);
+  });
+
   it('memoizes the result and does not re-probe on the second call', () => {
     spawnSyncMock.mockReturnValueOnce({
       status: 0,
@@ -75,7 +101,6 @@ describe('isCorepackAvailable', () => {
     });
     const callsBefore = spawnSyncMock.mock.calls.length;
     expect(isCorepackAvailable()).toBe(true);
-    // Second call returns the cached value without spawning again.
     expect(isCorepackAvailable()).toBe(true);
     expect(spawnSyncMock.mock.calls).toHaveLength(callsBefore + 1);
   });
@@ -86,9 +111,7 @@ describe('detectPackageManager', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-test-'));
-    // Availability is memoized at module scope; reset so each case probes afresh.
     resetCorepackCache();
-    // Default corepack: not available
     spawnSyncMock.mockReturnValue({
       status: 1,
       error: undefined,
@@ -231,24 +254,22 @@ describe('detectPackageManager', () => {
   });
 
   it('uses npm install when the resolved package-lock.json does not exist on disk', () => {
-    // depsLockFilePath points at a package-lock.json that is never created, so no
-    // lock is copied into the install dir and `npm ci` would fail.
     const lock = path.join(tmpDir, 'package-lock.json');
     const info = detectPackageManager(tmpDir, { lockFilePath: lock });
     expect(info.name).toBe('npm');
     expect(info.installCommand).toEqual(['npm', 'install']);
   });
 
-  it('uses npm install when npm is detected but the resolved lock file is not package-lock.json', () => {
+  it('throws when a packageManager field conflicts with the resolved lock file', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ packageManager: 'npm@10.0.0' }),
     );
     const otherLock = path.join(tmpDir, 'pnpm-lock.yaml');
     fs.writeFileSync(otherLock, '');
-    const info = detectPackageManager(tmpDir, { lockFilePath: otherLock });
-    expect(info.name).toBe('npm');
-    expect(info.installCommand).toEqual(['npm', 'install']);
+    expect(() => detectPackageManager(tmpDir, { lockFilePath: otherLock })).toThrow(
+      /Package manager mismatch/,
+    );
   });
 
   it('defaults to npm when nothing found', () => {
@@ -258,13 +279,12 @@ describe('detectPackageManager', () => {
   });
 
   it('ignores packageManager field with unknown pm name', () => {
-    // Only npm|yarn|pnpm|bun are matched; unknown ones fall through to lockfile/default
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ packageManager: 'unknown@1.0.0' }),
     );
     const info = detectPackageManager(tmpDir);
-    expect(info.name).toBe('npm'); // fallback
+    expect(info.name).toBe('npm');
   });
 
   it('pnpm install command uses --no-frozen-lockfile (not --no-prefer-frozen-lockfile)', () => {
@@ -303,8 +323,6 @@ describe('detectPackageManager', () => {
   });
 
   it('npm fallback uses "npm install" (not "npm ci") when no lock file is present', () => {
-    // No lock file → npm fallback path. npm ci requires package-lock.json and
-    // would fail; the command must be npm install instead.
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm');
     expect(info.installCommand).toContain('install');
@@ -317,14 +335,12 @@ describe('detectPackageManager', () => {
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ devEngines: { packageManager: { name: 'rush', version: '5.0.0' } } }),
     );
-    // 'rush' is not a known PM; should fall through and detect pnpm from lock file.
+
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('pnpm');
   });
 
   it('falls through to npm default when package.json contains non-object JSON', () => {
-    // A package.json that is valid JSON but not an object (e.g. an array) should be
-    // treated as absent so lock-file / npm-default detection takes over.
     fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify([]));
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm');
@@ -337,7 +353,7 @@ describe('detectPackageManager', () => {
     );
     const info = detectPackageManager(tmpDir);
     expect(info.name).toBe('npm');
-    // workspaceFiles must be iterable; TypeError if WORKSPACE_FILES['rush'] were used.
+
     expect(() =>
       info.workspaceFiles.forEach(() => {
         /* noop */
@@ -346,8 +362,6 @@ describe('detectPackageManager', () => {
   });
 
   it('reuses the provided lockFilePath to choose the package manager', () => {
-    // No packageManager/devEngines fields and no lock file in projectRoot; the
-    // already-discovered lock file should drive detection.
     const info = detectPackageManager(tmpDir, {
       lockFilePath: path.join('/elsewhere', 'yarn.lock'),
     });
@@ -355,8 +369,6 @@ describe('detectPackageManager', () => {
   });
 
   it('honors a leaf package.json packageManager field over the project root in a monorepo', () => {
-    // Root declares npm; the leaf sub-package (nearer the handler) declares pnpm.
-    // Detection must walk up from startDir and honor the nearest declaration.
     fs.writeFileSync(
       path.join(tmpDir, 'package.json'),
       JSON.stringify({ packageManager: 'npm@10.0.0' }),
@@ -401,8 +413,8 @@ describe('copyWorkspaceFiles', () => {
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), 'packages: []');
     fs.writeFileSync(path.join(srcDir, '.npmrc'), 'registry=...');
 
-    detectPackageManager(srcDir); // will be npm (no lock), but we override
-    // Build a fake info for pnpm
+    detectPackageManager(srcDir);
+
     const pnpmInfo = {
       name: 'pnpm' as const,
       version: undefined,
@@ -410,13 +422,14 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
 
     copyWorkspaceFiles(srcDir, destDir, pnpmInfo);
 
     expect(fs.existsSync(path.join(destDir, 'pnpm-workspace.yaml'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, '.npmrc'))).toBe(true);
-    // .pnpmfile.cjs didn't exist in src; should not be created in dest
+
     expect(fs.existsSync(path.join(destDir, '.pnpmfile.cjs'))).toBe(false);
   });
 
@@ -427,6 +440,7 @@ describe('copyWorkspaceFiles', () => {
     installCommand: [name, 'install'] as [string, ...string[]],
     workspaceFiles: WORKSPACE_FILES[name],
     packageManagerField: undefined,
+    nearestPackageJson: undefined,
   });
 
   it.each(['npm', 'pnpm'] as const)(
@@ -483,7 +497,6 @@ describe('copyWorkspaceFiles', () => {
     try {
       fs.writeFileSync(path.join(outsideDir, 'evil.patch'), 'diff');
       fs.mkdirSync(path.join(srcDir, 'patches'));
-      // Lexically inside srcDir, but the symlink resolves outside it.
       fs.symlinkSync(
         path.join(outsideDir, 'evil.patch'),
         path.join(srcDir, 'patches/constructs.patch'),
@@ -512,9 +525,9 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['yarn', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.yarn,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
     copyWorkspaceFiles(srcDir, destDir, info);
-    // No files in srcDir; destDir remains empty
     expect(fs.readdirSync(destDir)).toHaveLength(0);
   });
 
@@ -535,6 +548,7 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
 
     copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
@@ -560,12 +574,12 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
 
     copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
-    // @changesets/cli is not in nodeModules=['constructs']
     expect(written).not.toContain('patchedDependencies');
   });
 
@@ -576,8 +590,6 @@ describe('copyWorkspaceFiles', () => {
       '  "constructs@3.22.4": patches/constructs@3.22.4.patch',
     ].join('\n');
     fs.writeFileSync(path.join(srcDir, 'pnpm-workspace.yaml'), workspaceContent);
-    // Intentionally do NOT create the patch file in srcDir
-
     const pnpmInfo = {
       name: 'pnpm' as const,
       version: undefined,
@@ -585,13 +597,13 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
 
     copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);
 
     const written = fs.readFileSync(path.join(destDir, 'pnpm-workspace.yaml'), 'utf8');
     expect(written).toContain('constructs@3.22.4');
-    // Patch file doesn't exist in src, so it should not appear in dest either
     expect(fs.existsSync(path.join(destDir, 'patches/constructs@3.22.4.patch'))).toBe(false);
   });
 
@@ -614,6 +626,7 @@ describe('copyWorkspaceFiles', () => {
       installCommand: ['pnpm', 'install'] as [string, ...string[]],
       workspaceFiles: WORKSPACE_FILES.pnpm,
       packageManagerField: undefined,
+      nearestPackageJson: undefined,
     };
 
     copyWorkspaceFiles(srcDir, destDir, pnpmInfo, ['constructs']);

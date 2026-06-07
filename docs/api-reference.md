@@ -17,12 +17,10 @@ new NodejsFunction(scope: Construct, id: string, props: NodejsFunctionProps)
 Throws `ValidationError` if:
 
 - `runtime` is not a NODEJS family runtime.
-- `entry` points to a file that does not exist or has an unsupported extension.
+- `entry` is missing, points to a file that does not exist, points to a directory, or has an unsupported extension.
 - `depsLockFilePath` points to a path that does not exist or is not a file.
 - Lock files for different package managers are found during auto-detection (see `depsLockFilePath` below).
 - No lock file can be found at all.
-- The auto-detected entry file (from the construct id) cannot be found.
-- The entry cannot be auto-detected because `new NodejsFunction(...)` is not called directly from your construct/stack (see `entry` below).
 
 ---
 
@@ -38,25 +36,15 @@ bundling: BundlingOptions;
 
 Bundling configuration. See [`BundlingOptions`](#bundlingoptions).
 
-#### `entry`
+#### `entry` (required)
 
 ```ts
-entry?: string
+entry: string;
 ```
 
 Path to the handler entry file. Accepts `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
 
-Relative paths are resolved from the current working directory (`process.cwd()`).
-
-When omitted, the entry is derived automatically:
-
-1. The file that contains the `new NodejsFunction(...)` call is identified via the V8 call-stack API.
-2. The construct `id` is used as the filename stem.
-3. Extensions are tried in order: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
-
-Example -- if `appStack.ts` calls `new NodejsFunction(this, 'worker', ...)`, the auto-detected entry is `appStack.worker.ts` (in the same directory).
-
-Auto-detection assumes `new NodejsFunction(...)` is called directly from your construct/stack, or wrapped by at most one synchronous factory frame inside a construct constructor. A top-level or asynchronous factory wrapper resolves the entry relative to the wrong file; pass `entry` explicitly in that case. If resolution would point back into this package, a `ValidationError` is thrown rather than emitting a wrong path.
+Relative paths are resolved from the current working directory (`process.cwd()`). The file must exist and point to a file (not a directory), or a `ValidationError` is thrown.
 
 #### `handler`
 

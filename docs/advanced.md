@@ -105,29 +105,6 @@ Commands run synchronously through the platform default shell (`cmd.exe` on Wind
 
 ---
 
-## Entry file auto-detection
-
-When `entry` is omitted, `NodejsFunction` detects the entry file from the call stack:
-
-1. V8's stack-trace API finds the frame where `NodejsFunction` was called.
-2. The caller's file path is used as the base.
-3. The construct `id` is appended to form the handler filename.
-4. Extensions are tried in order: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
-
-Example directory layout:
-
-```
-src/
-  stacks/
-    appStack.ts         # calls new NodejsFunction(this, 'worker', ...)
-    appStack.worker.ts  # auto-detected entry
-    appStack.api.ts     # entry for new NodejsFunction(this, 'api', ...)
-```
-
-This mirrors the convention used by `aws_lambda_nodejs.NodejsFunction`. Set `entry` explicitly if you prefer a different layout.
-
----
-
 ## assetHash
 
 By default, CDK hashes the contents of the bundled output directory to determine whether the Lambda asset needs to be re-uploaded. This means a change to any source file will produce a new hash and trigger a re-deploy.
