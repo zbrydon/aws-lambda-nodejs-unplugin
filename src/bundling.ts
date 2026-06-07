@@ -190,8 +190,9 @@ export class Bundling implements cdk.BundlingOptions {
           // config files (notably `.npmrc` / `.yarnrc.yml`, which frequently hold
           // registry auth tokens) must never remain in the staged asset even when
           // the install throws.
+          let stagedFiles: string[] = [];
           try {
-            copyWorkspaceFiles(
+            stagedFiles = copyWorkspaceFiles(
               props.projectRoot,
               outputDir,
               pm,
@@ -222,9 +223,13 @@ export class Bundling implements cdk.BundlingOptions {
           } finally {
             // Remove the install-only config files now that install is done (or
             // has failed). These are not needed at runtime and may carry secrets,
-            // so they must never ship inside the deployed Lambda asset.
+            // so they must never ship inside the deployed Lambda asset. The same
+            // applies to any pnpm patch files staged alongside pnpm-workspace.yaml.
             for (const file of pm.workspaceFiles) {
               fs.rmSync(path.join(outputDir, file), { force: true });
+            }
+            for (const file of stagedFiles) {
+              fs.rmSync(file, { force: true });
             }
           }
         }

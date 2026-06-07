@@ -277,6 +277,27 @@ describe('Bundling.local.tryBundle', () => {
     }
   });
 
+  it('removes staged pnpm patch files from the asset after install', () => {
+    fs.mkdirSync(path.join(tmpDir, 'patches'));
+    fs.writeFileSync(path.join(tmpDir, 'patches/pino.patch'), 'diff');
+    fs.writeFileSync(
+      path.join(tmpDir, 'pnpm-workspace.yaml'),
+      ['packages: []', 'patchedDependencies:', '  "pino@9.0.0": patches/pino.patch'].join('\n'),
+    );
+
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'out-'));
+    try {
+      const bundling = new Bundling(makeProps({ nodeModules: ['pino'] }));
+      bundling.local.tryBundle(outputDir, bundling);
+
+      // The copied patch file and the workspace file must not survive into the asset.
+      expect(fs.existsSync(path.join(outputDir, 'patches/pino.patch'))).toBe(false);
+      expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it('throws when nodeModules set but no package.json found', () => {
     // Remove the package.json from the temp dir
     fs.unlinkSync(pkgJsonPath);
