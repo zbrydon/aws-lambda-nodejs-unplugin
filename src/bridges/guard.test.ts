@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  assertSingleEntryFile,
+  assertEntryFileEmitted,
   rejectRollupStyleSplitting,
   rejectSplitChunks,
   rejectSplittingOption,
@@ -70,7 +70,7 @@ describe('rejectRollupStyleSplitting', () => {
   });
 });
 
-describe('assertSingleEntryFile', () => {
+describe('assertEntryFileEmitted', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -81,20 +81,25 @@ describe('assertSingleEntryFile', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('passes for a single CJS entry (no format)', () => {
+  it('passes for a CJS entry (no format)', () => {
     fs.writeFileSync(path.join(dir, 'index.js'), '');
     fs.writeFileSync(path.join(dir, '.lambda-bundle-meta'), '{}');
-    expect(() => assertSingleEntryFile(dir, undefined)).not.toThrow();
+    expect(() => assertEntryFileEmitted(dir, undefined)).not.toThrow();
   });
 
-  it('passes for a single ESM entry', () => {
+  it('passes for an ESM entry', () => {
     fs.writeFileSync(path.join(dir, 'index.mjs'), '');
-    expect(() => assertSingleEntryFile(dir, 'esm')).not.toThrow();
+    expect(() => assertEntryFileEmitted(dir, 'esm')).not.toThrow();
   });
 
-  it('throws when an extra chunk file is emitted alongside the entry', () => {
-    fs.writeFileSync(path.join(dir, 'index.js'), '');
+  it('allows secondary chunks alongside the entry', () => {
+    fs.writeFileSync(path.join(dir, 'index.mjs'), '');
     fs.writeFileSync(path.join(dir, 'chunk-abc123.js'), '');
-    expect(() => assertSingleEntryFile(dir, undefined)).toThrow(/chunk-abc123\.js/);
+    expect(() => assertEntryFileEmitted(dir, 'esm')).not.toThrow();
+  });
+
+  it('throws when the entry file is missing', () => {
+    fs.writeFileSync(path.join(dir, 'chunk-abc123.js'), '');
+    expect(() => assertEntryFileEmitted(dir, 'esm')).toThrow(/index\.mjs/);
   });
 });

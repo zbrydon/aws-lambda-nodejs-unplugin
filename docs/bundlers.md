@@ -40,7 +40,7 @@ Consequences worth knowing:
 
 - Any `entryFileNames` / `output.filename` / farm `entryFilename` you set is **overridden** — set it only for local dev builds.
 - **Multiple entry points are not supported**; the driver forces a single entry.
-- **Code splitting that renames or removes the entry chunk is not supported.** esbuild `splitting` is rejected with a clear error because it is incompatible with a single `outfile`. Rollup/Rolldown/Vite `preserveModules` likewise breaks the single-`index` assumption and should not be used for a Lambda handler.
+- **Secondary chunks are supported.** Code splitting from dynamic `import()` emits extra chunk files alongside `index`, and they ship together in the asset; the Lambda runtime loads them as normal. (For ESM, the `type: module` `package.json` ensures the `.js` chunks load as ES modules.) Only config that **renames or removes the entry chunk** is rejected with a clear error: esbuild `splitting` (incompatible with a single `outfile`), Rollup/Rolldown/Vite `preserveModules` and multiple `output` arrays, and webpack/Rspack `optimization.splitChunks`/`runtimeChunk` — these break the fixed `index.<handler>` resolution.
 
 ---
 

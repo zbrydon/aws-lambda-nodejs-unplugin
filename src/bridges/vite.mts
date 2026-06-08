@@ -2,7 +2,7 @@ import { build } from 'vite';
 import type { InlineConfig } from 'vite';
 
 import { asRecord, asString } from './config.ts';
-import { assertSingleEntryFile, rejectRollupStyleSplitting } from './guard.ts';
+import { assertEntryFileEmitted, rejectRollupStyleSplitting } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
@@ -41,5 +41,5 @@ await build({
   },
 } satisfies InlineConfig);
 
-assertSingleEntryFile(outputDir, format);
+assertEntryFileEmitted(outputDir, format);
 writeBundleMeta(outputDir, format);

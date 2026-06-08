@@ -1,7 +1,7 @@
 import { build } from '@farmfe/core';
 
 import { asRecord, asString } from './config.ts';
-import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { assertEntryFileEmitted, rejectSplittingOption } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { isEsmFormat, writeBundleMeta } from './write-meta.ts';
 
@@ -33,5 +33,5 @@ await build({
   },
 } satisfies Parameters<typeof build>[0]);
 
-assertSingleEntryFile(outputDir, format);
+assertEntryFileEmitted(outputDir, format);
 writeBundleMeta(outputDir, format);

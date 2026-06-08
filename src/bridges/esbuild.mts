@@ -1,7 +1,7 @@
 import { build, type BuildOptions } from 'esbuild';
 import * as path from 'node:path';
 import { asString } from './config.ts';
-import { assertSingleEntryFile, rejectSplittingOption } from './guard.ts';
+import { assertEntryFileEmitted, rejectSplittingOption } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
@@ -18,5 +18,5 @@ await build({
   entryPoints: [entry],
   outfile: path.join(outputDir, entryFileName(format)),
 } satisfies BuildOptions);
-assertSingleEntryFile(outputDir, format);
+assertEntryFileEmitted(outputDir, format);
 writeBundleMeta(outputDir, format);

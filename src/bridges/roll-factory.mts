@@ -1,5 +1,5 @@
 import { asRecord, asString } from './config.ts';
-import { assertSingleEntryFile, rejectRollupStyleSplitting } from './guard.ts';
+import { assertEntryFileEmitted, rejectRollupStyleSplitting } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
@@ -44,6 +44,6 @@ export const runRollBridge = async <TInput, TOutput>(
     await bundle.close();
   }
 
-  assertSingleEntryFile(outputDir, format);
+  assertEntryFileEmitted(outputDir, format);
   writeBundleMeta(outputDir, format);
 };

@@ -1,5 +1,5 @@
 import { asRecord } from './config.ts';
-import { assertSingleEntryFile, rejectSplitChunks, rejectSplittingOption } from './guard.ts';
+import { assertEntryFileEmitted, rejectSplitChunks, rejectSplittingOption } from './guard.ts';
 import { loadBridgeContext } from './load-context.ts';
 import { entryFileName, writeBundleMeta } from './write-meta.ts';
 
@@ -65,6 +65,6 @@ export const runWebpackBridge = async (
     });
   });
 
-  assertSingleEntryFile(outputDir, format);
+  assertEntryFileEmitted(outputDir, format);
   writeBundleMeta(outputDir, format);
 };

@@ -135,6 +135,34 @@ describe('single-file guards', () => {
     }
   }, 60_000);
 
+  it('allows rolldown dynamic-import chunks alongside the entry', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-dynamic-'));
+    try {
+      expect(
+        bundle(
+          {
+            entry: path.resolve('integration/fixtures/dynamic-import/handler.ts'),
+            bundler: 'rolldown',
+            bundlerConfig: path.resolve('integration/fixtures/rolldown/esm.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toBe(true);
+
+      expect(fs.existsSync(path.join(outputDir, 'index.mjs'))).toBe(true);
+
+      const chunks = fs
+        .readdirSync(outputDir)
+        .filter((file) => /\.(js|mjs|cjs)$/.test(file) && file !== 'index.mjs');
+      expect(chunks.length).toBeGreaterThan(0);
+
+      const pkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf-8'));
+      expect(pkg.type).toBe('module');
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('accepts an empty rollup output and emits a single ESM handler', () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-empty-'));
     try {

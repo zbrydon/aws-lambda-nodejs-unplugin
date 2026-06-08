@@ -54,17 +54,15 @@ export const rejectSplitChunks = (value: unknown, label: string): void => {
   }
 };
 
-export const assertSingleEntryFile = (outputDir: string, format: string | undefined): void => {
+export const assertEntryFileEmitted = (outputDir: string, format: string | undefined): void => {
   const entry = entryFileName(format);
-  const extras = readdirSync(outputDir).filter(
-    (file) => /\.(js|mjs|cjs)$/.test(file) && file !== entry,
-  );
-  if (extras.length > 0) {
+  const emitted = readdirSync(outputDir).includes(entry);
+  if (!emitted) {
     throw new Error(
-      `Code splitting is not supported: the bundler emitted extra chunk file(s) ` +
-        `[${extras.join(', ')}] alongside ${entry}. The Lambda asset ships a single ` +
-        'handler file. Remove manualChunks / splitChunks / preserveModules and avoid ' +
-        'dynamic import() splitting in your bundler config.',
+      `The bundler did not emit the expected handler file '${entry}'. ` +
+        'The Lambda handler must be emitted under that fixed name. Avoid config that ' +
+        'renames or removes the entry chunk (preserveModules, multiple outputs, or an ' +
+        '`entryFileNames` override).',
     );
   }
 };
