@@ -8,31 +8,15 @@ import { Bundling } from '../src/bundling.ts';
 import { SUPPORTED_BUNDLERS } from '../src/types.ts';
 import { BASE_BUNDLING_PROPS } from './test-utils.ts';
 
-/**
- * Integration tests that verify ESM output bundles are emitted as `index.mjs`
- * and receive `"type":"module"` in the output package.json (so any secondary
- * code-split `.js` chunks are also treated as ES modules).
- *
- * For each bundler we:
- *   1. Run the bundler against the ESM fixture config.
- *   2. Assert the output directory contains index.mjs.
- *   3. Assert package.json exists with `"type":"module"`.
- *   4. Load index.mjs via dynamic import and invoke handler to confirm it executes.
- */
-/**
- * T1: verify that ESM output combined with nodeModules produces a package.json
- * that has both `"type":"module"` and the installed dependency, and that the
- * handler resolves the external module from the output node_modules at runtime.
- */
 it('ESM bundle with nodeModules gets type:module and installed dependency (esbuild)', async () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lambda-esm-nodemodules-'));
   try {
     const bundling = new Bundling({
       ...BASE_BUNDLING_PROPS,
       bundler: 'esbuild',
-      bundlerConfig: path.resolve('integration/fixtures/esbuild-esm.config.mjs'),
+      bundlerConfig: path.resolve('integration/fixtures/esbuild/esm.config.mjs'),
       entry: path.resolve('integration/fixtures/handler-with-dep.ts'),
-      nodeModules: ['zod'],
+      nodeModules: ['constructs'],
     });
 
     expect(
@@ -49,19 +33,19 @@ it('ESM bundle with nodeModules gets type:module and installed dependency (esbui
       dependencies?: Record<string, string>;
     };
     expect(outPkg.type, 'package.json must have type:module').toBe('module');
-    expect(outPkg.dependencies, 'package.json must list zod').toHaveProperty('zod');
+    expect(outPkg.dependencies, 'package.json must list constructs').toHaveProperty('constructs');
 
     expect(
-      fs.existsSync(path.join(outputDir, 'node_modules', 'zod')),
-      'zod not installed in node_modules',
+      fs.existsSync(path.join(outputDir, 'node_modules', 'constructs')),
+      'constructs not installed in node_modules',
     ).toBe(true);
 
     const mod = (await import(pathToFileURL(indexPath).href)) as { handler?: unknown };
     expect(typeof mod.handler, 'handler should be a function').toBe('function');
     const result = (await (mod.handler as (e: unknown) => Promise<unknown>)({})) as {
-      zodExports: string[];
+      constructsExports: string[];
     };
-    expect(result.zodExports).toContain('z');
+    expect(result.constructsExports).toContain('Construct');
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
   }
@@ -75,7 +59,7 @@ it.each(SUPPORTED_BUNDLERS)(
       const bundling = new Bundling({
         ...BASE_BUNDLING_PROPS,
         bundler,
-        bundlerConfig: path.resolve(`integration/fixtures/${bundler}-esm.config.mjs`),
+        bundlerConfig: path.resolve(`integration/fixtures/${bundler}/esm.config.mjs`),
         entry: path.resolve('integration/fixtures/handler.ts'),
       });
 

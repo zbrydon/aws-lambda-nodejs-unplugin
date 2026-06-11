@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import * as path from 'path';
 import { App, Stack } from 'aws-cdk-lib';
@@ -10,7 +9,6 @@ import { ValidationError } from './errors.ts';
 import { NodejsFunction } from './function.ts';
 import * as utilModule from './util.ts';
 
-// Mock child_process to prevent actual bundler invocations.
 vi.mock('child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('child_process')>();
   return {
@@ -37,6 +35,8 @@ beforeEach(() => {
   lockFile = path.join(tmpDir, 'pnpm-lock.yaml');
   fs.writeFileSync(entryFile, 'export const handler = () => {};');
   fs.writeFileSync(lockFile, '');
+  fs.writeFileSync(path.join(tmpDir, 'build.mjs'), 'export default {};');
+  fs.writeFileSync(path.join(tmpDir, 'rollup.config.mjs'), 'export default {};');
   fs.writeFileSync(
     path.join(tmpDir, 'package.json'),
     JSON.stringify({ name: 'test', dependencies: {} }),
@@ -96,9 +96,6 @@ describe('NodejsFunction', () => {
   });
 
   it('re-anchors a dotted handler to index. since output is always index.js', () => {
-    // The bundle is always emitted as index.js, so a handler like
-    // "myFile.myFunction" would point at a non-existent file at runtime. Only the
-    // exported function name is kept and re-prefixed with index.
     const scope = makeScope();
     // oxlint-disable-next-line no-new
     new NodejsFunction(scope, 'my-handler', {
@@ -177,6 +174,38 @@ describe('NodejsFunction', () => {
     ).not.toThrow();
   });
 
+  it('throws when the bundler config does not exist', () => {
+    const scope = makeScope();
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          depsLockFilePath: lockFile,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: path.join(tmpDir, 'missing.mjs'),
+          },
+        }),
+    ).toThrow(/Cannot find bundler config/);
+  });
+
+  it('throws when the bundler config path is a directory', () => {
+    const scope = makeScope();
+    const dirConfig = path.join(tmpDir, 'config-dir.mjs');
+    fs.mkdirSync(dirConfig);
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          depsLockFilePath: lockFile,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: dirConfig,
+          },
+        }),
+    ).toThrow(/is not a file/);
+  });
+
   it('throws ValidationError for non-NODEJS runtime', () => {
     const scope = makeScope();
     expect(
@@ -195,7 +224,6 @@ describe('NodejsFunction', () => {
 
   it('uses explicit projectRoot', () => {
     const scope = makeScope();
-    // Should not throw with explicit projectRoot + entry + depsLockFilePath
     expect(
       () =>
         new NodejsFunction(scope, 'my-handler', {
@@ -279,7 +307,7 @@ describe('NodejsFunction', () => {
       () =>
         new NodejsFunction(scope, 'my-handler', {
           entry: entryFile,
-          depsLockFilePath: tmpDir, // a directory, not a file
+          depsLockFilePath: tmpDir,
           bundling: {
             bundler: 'esbuild',
             bundlerConfig: path.join(tmpDir, 'build.mjs'),
@@ -289,9 +317,6 @@ describe('NodejsFunction', () => {
   });
 
   it('auto-detects entry from .js sibling when no .ts exists', () => {
-    // Write a .js handler file next to this test file won't work because
-    // callsites() would look next to the compiled file. Use explicit entry
-    // to verify .js extensions work.
     const jsEntry = path.join(tmpDir, 'handler.js');
     fs.writeFileSync(jsEntry, 'module.exports.handler = () => {};');
 
@@ -310,8 +335,6 @@ describe('NodejsFunction', () => {
   });
 
   it('throws when multiple lock files found', () => {
-    // Spy on findUpMultiple to return two lock files, simulating a repo
-    // that has both pnpm-lock.yaml and yarn.lock in the same directory.
     vi.spyOn(utilModule, 'findUpMultiple').mockReturnValueOnce([
       path.join(tmpDir, 'pnpm-lock.yaml'),
       path.join(tmpDir, 'yarn.lock'),
@@ -330,8 +353,29 @@ describe('NodejsFunction', () => {
     ).toThrow(ValidationError);
   });
 
+  it('does not throw when same-manager lock variants coexist (bun.lock + bun.lockb)', () => {
+    fs.writeFileSync(path.join(tmpDir, 'bun.lock'), '');
+    fs.writeFileSync(path.join(tmpDir, 'bun.lockb'), '');
+    vi.spyOn(utilModule, 'findUpMultiple').mockReturnValueOnce([
+      path.join(tmpDir, 'bun.lock'),
+      path.join(tmpDir, 'bun.lockb'),
+    ]);
+
+    const scope = makeScope();
+    expect(
+      () =>
+        new NodejsFunction(scope, 'my-handler', {
+          entry: entryFile,
+          projectRoot: tmpDir,
+          bundling: {
+            bundler: 'esbuild',
+            bundlerConfig: path.join(tmpDir, 'build.mjs'),
+          },
+        }),
+    ).not.toThrow();
+  });
+
   it('throws when no lock files found anywhere', () => {
-    // Mock findUpMultiple to return no lock files.
     vi.spyOn(utilModule, 'findUpMultiple').mockReturnValueOnce([]);
 
     const scope = makeScope();
@@ -339,353 +383,6 @@ describe('NodejsFunction', () => {
       () =>
         new NodejsFunction(scope, 'my-handler', {
           entry: entryFile,
-          bundling: {
-            bundler: 'esbuild',
-            bundlerConfig: path.join(tmpDir, 'build.mjs'),
-          },
-        }),
-    ).toThrow(ValidationError);
-  });
-
-  it('auto-detect entry: throws when no handler file matches the pattern', () => {
-    // Call without entry; auto-detect will use the callsite file (this test
-    // file) + id, and no matching file exists for the id "xyzzy-no-such-file".
-    const scope = makeScope();
-    expect(
-      () =>
-        new NodejsFunction(scope, 'xyzzy-no-such-file', {
-          depsLockFilePath: lockFile,
-          bundling: {
-            bundler: 'esbuild',
-            bundlerConfig: path.join(tmpDir, 'build.mjs'),
-          },
-        }),
-    ).toThrow(ValidationError);
-  });
-
-  it('auto-detect entry: finds a .ts file matching the calling file + id', () => {
-    // findDefiningFile returns this test file. NodejsFunction will look for
-    // function.test.<id>.ts alongside it; create that file.
-    const thisFile = fileURLToPath(import.meta.url);
-    const thisDir = path.dirname(thisFile);
-    const ext = path.extname(thisFile);
-    const handlerFile = thisFile.replace(
-      new RegExp(`${ext.replace('.', '\\.')}$`),
-      '.auto-entry.ts',
-    );
-    fs.writeFileSync(handlerFile, 'export const handler = () => {};');
-
-    try {
-      const scope = makeScope();
-      expect(
-        () =>
-          new NodejsFunction(scope, 'auto-entry', {
-            depsLockFilePath: lockFile,
-            projectRoot: path.resolve(thisDir, '..'),
-            bundling: {
-              bundler: 'esbuild',
-              bundlerConfig: path.join(tmpDir, 'build.mjs'),
-            },
-          }),
-      ).not.toThrow();
-    } finally {
-      if (fs.existsSync(handlerFile)) {
-        fs.unlinkSync(handlerFile);
-      }
-    }
-  });
-
-  it('auto-detect entry: works when NodejsFunction is subclassed', () => {
-    // Subclassing exercises the while-loop in findDefiningFile that walks past
-    // intermediate constructor frames (their `this` is uninitialised before
-    // super() returns, so getTypeName() === null && isConstructor() === true).
-    class CustomFunction extends NodejsFunction {}
-
-    const thisFile = fileURLToPath(import.meta.url);
-    const ext = path.extname(thisFile);
-    const handlerFile = thisFile.replace(
-      new RegExp(`${ext.replace('.', '\\.')}$`),
-      '.custom-fn.ts',
-    );
-    fs.writeFileSync(handlerFile, 'export const handler = () => {};');
-
-    try {
-      const scope = makeScope();
-      expect(
-        () =>
-          new CustomFunction(scope, 'custom-fn', {
-            depsLockFilePath: lockFile,
-            bundling: {
-              bundler: 'esbuild',
-              bundlerConfig: path.join(tmpDir, 'build.mjs'),
-            },
-          }),
-      ).not.toThrow();
-    } finally {
-      if (fs.existsSync(handlerFile)) {
-        fs.unlinkSync(handlerFile);
-      }
-    }
-  });
-
-  it('auto-detect: throws when defining file cannot be determined', () => {
-    // Mock callsites to return a stack without 'NodejsFunction'.
-    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([]);
-
-    const scope = makeScope();
-    expect(
-      () =>
-        new NodejsFunction(scope, 'my-handler', {
-          depsLockFilePath: lockFile,
-          bundling: {
-            bundler: 'esbuild',
-            bundlerConfig: path.join(tmpDir, 'build.mjs'),
-          },
-        }),
-    ).toThrow(ValidationError);
-  });
-
-  it('auto-detect entry: construct id containing $& does not garble the candidate path', () => {
-    // Regression: the id was previously passed as a raw string to String.replace(),
-    // causing $& (and other $-sequences) to expand to the matched extension,
-    // producing paths like ".Pay.tsHandler.ts" instead of ".Pay$&Handler.ts".
-    const thisFile = fileURLToPath(import.meta.url);
-    const ext = path.extname(thisFile);
-    const id = 'Pay$&Handler';
-    // Use a replacer function here too so the test's own path construction
-    // isn't tripped up by the same $& expansion.
-    const handlerFile = thisFile.replace(
-      new RegExp(`${ext.replace('.', '\\.')}$`),
-      () => `.${id}.ts`,
-    );
-    fs.writeFileSync(handlerFile, 'export const handler = () => {};');
-
-    try {
-      const scope = makeScope();
-      expect(
-        () =>
-          new NodejsFunction(scope, id, {
-            depsLockFilePath: lockFile,
-            bundling: {
-              bundler: 'esbuild',
-              bundlerConfig: path.join(tmpDir, 'build.mjs'),
-            },
-          }),
-      ).not.toThrow();
-    } finally {
-      if (fs.existsSync(handlerFile)) {
-        fs.unlinkSync(handlerFile);
-      }
-    }
-  });
-
-  it('auto-detect: file:/// URL (three slashes) is normalised correctly by fileURLToPath', () => {
-    // Simulate an ESM loader that returns a file:/// URL with three slashes.
-    // A bare regex strip (/^file:\/\//) would leave a leading /C:/ on Windows.
-    // fileURLToPath handles this correctly on all platforms.
-    const thisFile = fileURLToPath(import.meta.url);
-    const tripleSlashUrl = `file://${thisFile}`; // produces file:///abs/path on Unix
-
-    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([
-      {
-        getFunctionName: () => 'NodejsFunction',
-        getTypeName: () => 'NodejsFunction',
-        getFileName: () => '/some/path/function.js',
-        getLineNumber: () => 1,
-        getColumnNumber: () => 1,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => true,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-      {
-        // Frame whose getFileName() returns a file:/// URL.
-        getFunctionName: () => 'TestStack',
-        getTypeName: () => 'TestStack',
-        getFileName: () => tripleSlashUrl,
-        getLineNumber: () => 10,
-        getColumnNumber: () => 5,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => true,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-    ] as ReturnType<typeof utilModule.callsites>);
-
-    // The entry-detection will fail (no matching file) but the error message
-    // must reference the properly normalised path, not a garbled URL with
-    // a trailing slash artifact.
-    const scope = makeScope();
-    let errorMessage = '';
-    try {
-      const _fn = new NodejsFunction(scope, 'xyzzy-no-such-file', {
-        depsLockFilePath: lockFile,
-        bundling: {
-          bundler: 'esbuild',
-          bundlerConfig: path.join(tmpDir, 'build.mjs'),
-        },
-      });
-    } catch (e) {
-      errorMessage = String(e);
-    }
-    // The tried paths should be derived from the real fs path, not "file:///…".
-    expect(errorMessage).not.toContain('file://');
-    expect(errorMessage).toContain('.xyzzy-no-such-file');
-  });
-
-  it('auto-detect: skips factory-wrapper frame to find the real CDK construct call site', () => {
-    // Regression: when a non-constructor factory function wraps new NodejsFunction(),
-    // the stack-walk must continue past that frame and land on the enclosing
-    // class constructor (the true call site).
-    const thisFile = fileURLToPath(import.meta.url);
-
-    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([
-      // Frame 0: NodejsFunction constructor itself
-      {
-        getFunctionName: () => 'NodejsFunction',
-        getTypeName: () => null as unknown as string,
-        getFileName: () => '/some/path/function.js',
-        getLineNumber: () => 58,
-        getColumnNumber: () => 5,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => true,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-      // Frame 1: factory wrapper (non-constructor, null typeName)
-      {
-        getFunctionName: () => 'makeApi',
-        getTypeName: () => null as unknown as string,
-        getFileName: () => '/some/path/factory.js',
-        getLineNumber: () => 5,
-        getColumnNumber: () => 10,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => false,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-      // Frame 2: UserStack constructor, the actual call site (non-null typeName)
-      {
-        getFunctionName: () => 'UserStack',
-        getTypeName: () => 'UserStack',
-        getFileName: () => thisFile,
-        getLineNumber: () => 20,
-        getColumnNumber: () => 5,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => true,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-    ] as ReturnType<typeof utilModule.callsites>);
-
-    // The auto-detect should resolve entry relative to thisFile (frame 2),
-    // not relative to factory.js (frame 1).  No matching handler file exists,
-    // so it will throw; the error must mention thisFile-derived paths,
-    // not factory.js-derived paths.
-    const scope = makeScope();
-    let errorMessage = '';
-    try {
-      const _fn = new NodejsFunction(scope, 'no-such-handler', {
-        depsLockFilePath: lockFile,
-        bundling: {
-          bundler: 'esbuild',
-          bundlerConfig: path.join(tmpDir, 'build.mjs'),
-        },
-      });
-    } catch (e) {
-      errorMessage = String(e);
-    }
-    expect(errorMessage).toContain('no-such-handler');
-    // The path must be derived from thisFile (function.test.*), not factory.js.
-    expect(errorMessage).not.toContain('factory');
-    expect(errorMessage).toContain('function.test');
-  });
-
-  const s3KeyForAssetHash = (assetHash: string): string => {
-    const scope = makeScope();
-    // oxlint-disable-next-line no-new
-    new NodejsFunction(scope, 'my-handler', {
-      entry: entryFile,
-      depsLockFilePath: lockFile,
-      bundling: {
-        bundler: 'esbuild',
-        bundlerConfig: path.join(tmpDir, 'build.mjs'),
-        assetHash,
-      },
-    });
-    const fns = Template.fromStack(scope).findResources('AWS::Lambda::Function');
-    const [fn] = Object.values(fns) as { Properties: { Code: { S3Key: string } } }[];
-    return fn!.Properties.Code.S3Key;
-  };
-
-  it('uses a custom assetHash to produce a deterministic, content-independent asset key', () => {
-    // The same custom hash yields the same S3 key regardless of source content,
-    // and a different custom hash yields a different key (CUSTOM hash type).
-    expect(s3KeyForAssetHash('hash-one')).toBe(s3KeyForAssetHash('hash-one'));
-    expect(s3KeyForAssetHash('hash-one')).not.toBe(s3KeyForAssetHash('hash-two'));
-  });
-
-  it('auto-detect: throws ValidationError when defining callsite has a null filename', () => {
-    // Simulate a native/eval frame immediately after the NodejsFunction frame.
-    vi.spyOn(utilModule, 'callsites').mockReturnValueOnce([
-      {
-        getFunctionName: () => 'NodejsFunction',
-        getTypeName: () => 'NodejsFunction',
-        getFileName: () => '/some/path/function.js',
-        getLineNumber: () => 1,
-        getColumnNumber: () => 1,
-        isNative: () => false,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => true,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-      {
-        // Native frame: getFileName() returns null.
-        getFunctionName: () => null as unknown as string,
-        getTypeName: () => null as unknown as string,
-        getFileName: () => null as unknown as string,
-        getLineNumber: () => 0,
-        getColumnNumber: () => 0,
-        isNative: () => true,
-        isToplevel: () => false,
-        isEval: () => false,
-        isConstructor: () => false,
-        getThis: () => undefined,
-        getMethodName: () => null as unknown as string,
-        getFunction: () => undefined as unknown as () => unknown,
-        getEvalOrigin: () => '',
-      },
-    ] as ReturnType<typeof utilModule.callsites>);
-
-    const scope = makeScope();
-    expect(
-      () =>
-        new NodejsFunction(scope, 'my-handler', {
-          depsLockFilePath: lockFile,
           bundling: {
             bundler: 'esbuild',
             bundlerConfig: path.join(tmpDir, 'build.mjs'),

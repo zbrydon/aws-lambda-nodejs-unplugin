@@ -1,30 +1,37 @@
 import { build } from '@farmfe/core';
 
-import { getArgs } from './get-args.ts';
+import { asRecord, asString } from './config.ts';
+import { assertEntryFileEmitted, rejectSplittingOption } from './guard.ts';
+import { loadBridgeContext } from './load-context.ts';
 import { isEsmFormat, writeBundleMeta } from './write-meta.ts';
 
-const { configPath, entry, outputDir } = getArgs();
+const { entry, outputDir, userConfig } = await loadBridgeContext();
 
-const { default: userConfig } = await import(configPath);
+const compilation = asRecord(userConfig.compilation);
+const output = asRecord(compilation?.output);
 
-if (!userConfig || typeof userConfig !== 'object') {
-  throw new Error(`Config file must export a default config object: ${configPath}`);
-}
+const format = asString(output?.format) ?? 'esm';
 
-const format: string | undefined = userConfig.compilation?.output?.format;
+const partialBundling = asRecord(compilation?.partialBundling);
+rejectSplittingOption(partialBundling?.groups, 'compilation.partialBundling.groups');
+rejectSplittingOption(
+  partialBundling?.enforceResources,
+  'compilation.partialBundling.enforceResources',
+);
 
 await build({
   ...userConfig,
   compilation: {
-    ...userConfig.compilation,
+    ...compilation,
     input: { index: entry },
     output: {
-      ...userConfig.compilation?.output,
+      ...output,
       path: outputDir,
-      // Enforce [entryName].(m)js so the output is always index.js (CJS) or
-      // index.mjs (ESM) regardless of the user's entryFilename.
+
       entryFilename: isEsmFormat(format) ? '[entryName].mjs' : '[entryName].js',
     },
   },
-});
+} satisfies Parameters<typeof build>[0]);
+
+assertEntryFileEmitted(outputDir, format);
 writeBundleMeta(outputDir, format);
