@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { ValidationError } from '../errors.ts';
 import type { SupportedBundler } from '../types.ts';
 import type { BundlerAdapter } from './types.ts';
 
@@ -17,4 +18,12 @@ const REGISTRY: Record<SupportedBundler, BundlerAdapter> = {
   webpack: makeAdapter('webpack'),
 };
 
-export const getBundler = (name: SupportedBundler): BundlerAdapter => REGISTRY[name];
+export const getBundler = (name: SupportedBundler): BundlerAdapter => {
+  const adapter = REGISTRY[name];
+  if (!adapter) {
+    throw new ValidationError(
+      `Unknown bundler '${name}'. Supported bundlers: ${Object.keys(REGISTRY).join(', ')}.`,
+    );
+  }
+  return adapter;
+};

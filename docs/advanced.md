@@ -33,12 +33,14 @@ After bundling completes, the driver:
 
 ### Package manager detection
 
-The driver reads `projectRoot/package.json` and detects the package manager in this order:
+The driver detects the package manager in this order:
 
 1. `packageManager` field (e.g. `"pnpm@9.0.0"`). Also activates corepack if available.
 2. `devEngines.packageManager.name` field.
 3. Lock file present in `projectRoot` (`pnpm-lock.yaml` > `yarn.lock` > `bun.lock` > `bun.lockb` > `package-lock.json`).
 4. Falls back to npm.
+
+For steps 1 and 2 the `package.json` chain is walked nearest-first, from the entry file's directory up to `projectRoot`, so a `packageManager` / `devEngines` field declared in a monorepo leaf package wins over the repo root (mirroring how `nodeModules` versions are resolved above). When an explicit `projectRoot` is passed that the entry is not inside, only `projectRoot/package.json` is consulted.
 
 Install commands used:
 
@@ -46,7 +48,7 @@ Install commands used:
 | ---- | ------------------------------------------------------------------------------------------------------------- |
 | pnpm | `pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-frozen-lockfile` |
 | yarn | `yarn install --no-immutable`                                                                                 |
-| bun  | `bun install --backend copyfile`                                                                              |
+| bun  | `bun install --backend copyfile` (with `--ignore-scripts` appended when `ignoreScripts` is set)               |
 | npm  | `npm ci` (when `package-lock.json` is present), otherwise `npm install`                                       |
 
 When corepack is active (detected via `corepack --version`) and the `packageManager` field is set, the install command is prefixed with `corepack <pm>` so the pinned version is honoured.
@@ -80,12 +82,15 @@ new NodejsFunction(this, 'my-fn', {
         return [];
       },
       beforeInstall(inputDir, outputDir) {
-        // Generate Prisma client before installing
-        return [`npx prisma generate --schema=${inputDir}/prisma/schema.prisma`];
+        // Generate Prisma client before installing. Quote the interpolated paths
+        // so a space or shell metacharacter in a staging path cannot break the command.
+        return [`npx prisma generate --schema="${inputDir}/prisma/schema.prisma"`];
       },
       afterBundling(inputDir, outputDir) {
         // Copy generated Prisma engine binaries
-        return [`cp -r ${inputDir}/node_modules/.prisma/client ${outputDir}/node_modules/.prisma/`];
+        return [
+          `cp -r "${inputDir}/node_modules/.prisma/client" "${outputDir}/node_modules/.prisma/"`,
+        ];
       },
     },
   },
@@ -96,30 +101,7 @@ Each method receives `inputDir` (project root) and `outputDir` (CDK asset stagin
 
 Commands run synchronously through the platform default shell (`cmd.exe` on Windows, `/bin/sh` on POSIX) with the project root as the working directory. A non-zero exit throws a `ValidationError`. A spawn error (e.g. `ENOENT`) also throws.
 
-> **Security note:** bundler config files are imported and command hooks are executed with the full privileges of the synth environment (typically CI, with cloud credentials). Treat both as trusted code. Use the `timeout` bundling option to bound how long any subprocess may run.
-
----
-
-## Entry file auto-detection
-
-When `entry` is omitted, `NodejsFunction` detects the entry file from the call stack:
-
-1. V8's stack-trace API finds the frame where `NodejsFunction` was called.
-2. The caller's file path is used as the base.
-3. The construct `id` is appended to form the handler filename.
-4. Extensions are tried in order: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
-
-Example directory layout:
-
-```
-src/
-  stacks/
-    appStack.ts         # calls new NodejsFunction(this, 'worker', ...)
-    appStack.worker.ts  # auto-detected entry
-    appStack.api.ts     # entry for new NodejsFunction(this, 'api', ...)
-```
-
-This mirrors the convention used by `aws_lambda_nodejs.NodejsFunction`. Set `entry` explicitly if you prefer a different layout.
+> **Security note:** bundler config files are imported and command hooks are executed with the full privileges of the synth environment (typically CI, with cloud credentials), and every spawned subprocess (bundler bridge, package-manager install, command hook) inherits the full `process.env`. Treat both as trusted code. Use the `timeout` bundling option to bound how long any subprocess may run, and prefer `ignoreScripts: true` for untrusted dependency trees. See [Security / trust model](../README.md#security--trust-model) for the full picture.
 
 ---
 

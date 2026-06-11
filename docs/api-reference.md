@@ -17,11 +17,10 @@ new NodejsFunction(scope: Construct, id: string, props: NodejsFunctionProps)
 Throws `ValidationError` if:
 
 - `runtime` is not a NODEJS family runtime.
-- `entry` points to a file that does not exist or has an unsupported extension.
+- `entry` is missing, points to a file that does not exist, points to a directory, or has an unsupported extension.
 - `depsLockFilePath` points to a path that does not exist or is not a file.
-- Multiple lock files are found during auto-detection (see `depsLockFilePath` below).
+- Lock files for different package managers are found during auto-detection (see `depsLockFilePath` below).
 - No lock file can be found at all.
-- The auto-detected entry file (from the construct id) cannot be found.
 
 ---
 
@@ -37,23 +36,15 @@ bundling: BundlingOptions;
 
 Bundling configuration. See [`BundlingOptions`](#bundlingoptions).
 
-#### `entry`
+#### `entry` (required)
 
 ```ts
-entry?: string
+entry: string;
 ```
 
 Path to the handler entry file. Accepts `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
 
-Relative paths are resolved from the current working directory (`process.cwd()`).
-
-When omitted, the entry is derived automatically:
-
-1. The file that contains the `new NodejsFunction(...)` call is identified via the V8 call-stack API.
-2. The construct `id` is used as the filename stem.
-3. Extensions are tried in order: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
-
-Example -- if `appStack.ts` calls `new NodejsFunction(this, 'worker', ...)`, the auto-detected entry is `appStack.worker.ts` (in the same directory).
+Relative paths are resolved from the current working directory (`process.cwd()`). The file must exist and point to a file (not a directory), or a `ValidationError` is thrown.
 
 #### `handler`
 
@@ -85,7 +76,7 @@ depsLockFilePath?: string
 
 Absolute or relative path to the package manager lock file.
 
-When omitted, the lock file is found by walking up parent directories from the current working directory. Lock files are searched in this order of preference: `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `package-lock.json`. If multiple lock files are found at the same directory level a `ValidationError` is thrown.
+When omitted, the lock file is found by walking up parent directories from the current working directory. Lock files are searched in this order of preference: `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `package-lock.json`. If lock files for **different** package managers are found at the same directory level a `ValidationError` is thrown. Multiple lock variants of a single manager (e.g. `bun.lock` and `bun.lockb` during a migration) are allowed and resolved by the preference order above.
 
 #### `projectRoot`
 
@@ -121,7 +112,9 @@ Path to the bundler config file. Absolute or relative to the project root.
 
 The file must export a default configuration object for the chosen bundler. The CDK bundling driver imports this object, merges in the CDK-controlled entry point and output directory, and calls the bundler's JavaScript API.
 
-The config does **not** need to read environment variables or import `createLambdaUnplugin`. See [Bundler configs](bundlers.md) for per-bundler examples.
+The config does **not** need to read environment variables or import anything from this package. See [Bundler configs](bundlers.md) for per-bundler examples.
+
+> **Security:** this file is `import()`-ed and its top-level code runs with the full privileges and environment of the synth process. Treat it as trusted code, the same as any other build script in your project. See [Security / trust model](../README.md#security--trust-model).
 
 #### `nodeModules`
 
@@ -156,6 +149,26 @@ assetHash?: string
 
 Custom asset hash string. When set, CDK uses `AssetHashType.CUSTOM` with this value instead of computing a hash from the bundled output. Useful for deterministic deployments when you want to control when the Lambda asset is considered changed.
 
+#### `timeout`
+
+```ts
+timeout?: number
+```
+
+Maximum time, in milliseconds, that any single spawned subprocess (the bundler bridge, the package manager install, or a command hook) may run before it is killed and bundling fails. Omit for no timeout.
+
+This is a synth-time guard, unrelated to the Lambda function's runtime `timeout`. Because bundling runs the bundler config, command hooks, and dependency install with full privileges (see [Security / trust model](../README.md#security--trust-model)), a bound here prevents a hung or runaway subprocess from blocking synth indefinitely.
+
+The one-time `corepack --version` availability probe (run once per process, before any bundle is spawned, to decide whether to prefix installs with `corepack`) uses a fixed 5-second timeout and is **not** affected by this option.
+
+#### `ignoreScripts`
+
+```ts
+ignoreScripts?: boolean  // default: false
+```
+
+When `true`, disables package lifecycle scripts (e.g. `postinstall`) during the `nodeModules` install, as defense-in-depth against a compromised transitive dependency. Implemented by injecting the relevant setting into the staged package-manager config (`.npmrc` `ignore-scripts=true` for npm/pnpm, `.yarnrc.yml` `enableScripts: false` for yarn); these config files are stripped from the asset after install. For bun (which has no equivalent config switch and is not safe by default, since it runs lifecycle scripts for its built-in trusted list and the most popular packages) the `bun install --ignore-scripts` flag is used instead. Defaults to `false` to match upstream `aws_lambda_nodejs.NodejsFunction` behavior.
+
 ---
 
 ## `ICommandHooks`
@@ -177,9 +190,11 @@ Each method receives:
 - `inputDir`: the project root directory.
 - `outputDir`: the CDK asset staging directory where bundled output will be written.
 
-Return an array of shell commands (bash strings). An empty array skips the hook. Commands run in order.
+Return an array of shell command strings. Each runs through the platform default shell (`cmd.exe` on Windows, `/bin/sh` on POSIX), not bash specifically. An empty array skips the hook. Commands run in order.
 
 `beforeInstall` only runs when `nodeModules` is non-empty.
+
+> **Security:** returned commands execute through the shell with the full environment of the synth process. Treat them as trusted code and never interpolate untrusted input into the returned strings. See [Security / trust model](../README.md#security--trust-model).
 
 ---
 

@@ -1,5 +1,14 @@
 {
-  extends: ['github>seek-oss/rynovate'],
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    ':dependencyDashboard',
+    ':rebaseStalePrs',
+    ':semanticCommits',
+    ':timezone(Australia/Melbourne)',
+    'group:monorepos',
+    'helpers:pinGitHubActionDigestsToSemver',
+  ],
+  minimumReleaseAge: '3 days',
   customManagers: [
     {
       customType: 'regex',

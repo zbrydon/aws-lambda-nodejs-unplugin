@@ -60,6 +60,7 @@ export class AppStack extends Stack {
     super(scope, id, props);
 
     new NodejsFunction(this, 'my-api', {
+      entry: 'src/my-api.ts', // path to your handler entry file
       runtime: lambda.Runtime.NODEJS_24_X,
       bundling: {
         bundler: 'esbuild', // bundler name
@@ -70,19 +71,9 @@ export class AppStack extends Stack {
 }
 ```
 
-### Entry file auto-detection
+### Entry file
 
-If you omit `entry`, the construct looks for a handler file next to the file that calls `new NodejsFunction(...)`, using the construct id as the filename stem:
-
-```
-stacks/
-  appStack.ts         <-- calls new NodejsFunction(this, 'worker', ...)
-  appStack.worker.ts  <-- auto-detected entry
-```
-
-Supported extensions (tried in order): `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
-
-Set `entry` explicitly to override this behaviour.
+`entry` is required and must point to your handler file. Relative paths are resolved from the current working directory. Supported extensions: `.ts`, `.js`, `.mjs`, `.mts`, `.cts`, `.cjs`.
 
 ## Step 3: synthesise
 
