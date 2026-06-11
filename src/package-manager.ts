@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ValidationError } from './errors.ts';
 import { isRecord, parseJsonFile } from './util.ts';
 
 export type PackageManagerName = 'npm' | 'yarn' | 'pnpm' | 'bun';
 
-export enum LockFile {
+enum LockFile {
   NPM = 'package-lock.json',
   YARN = 'yarn.lock',
   BUN = 'bun.lockb',
@@ -13,14 +14,16 @@ export enum LockFile {
   PNPM = 'pnpm-lock.yaml',
 }
 
-/** Known package manager names, used for validation of devEngines entries. */
-const KNOWN_PM_NAMES = new Set<PackageManagerName>(['npm', 'yarn', 'pnpm', 'bun']);
+const KNOWN_PM_NAMES: ReadonlySet<string> = new Set<PackageManagerName>([
+  'npm',
+  'yarn',
+  'pnpm',
+  'bun',
+]);
 
-/** Type guard that narrows an unknown value to PackageManagerName. */
 const isPackageManagerName = (value: unknown): value is PackageManagerName =>
-  typeof value === 'string' && KNOWN_PM_NAMES.has(value as PackageManagerName);
+  typeof value === 'string' && KNOWN_PM_NAMES.has(value);
 
-/** Ordered list: first match wins. */
 const LOCK_FILE_PM: [string, PackageManagerName][] = [
   [LockFile.PNPM, 'pnpm'],
   [LockFile.YARN, 'yarn'],
@@ -29,10 +32,11 @@ const LOCK_FILE_PM: [string, PackageManagerName][] = [
   [LockFile.NPM, 'npm'],
 ];
 
-/** Lock-file names in precedence order. Single source for lock-file discovery. */
 export const LOCK_FILE_NAMES: string[] = LOCK_FILE_PM.map(([file]) => file);
 
-/** Workspace-config files to copy from the source repo into the asset output dir. */
+export const lockFilePackageManager = (fileName: string): PackageManagerName | undefined =>
+  LOCK_FILE_PM.find(([file]) => file === fileName)?.[1];
+
 export const WORKSPACE_FILES: Record<PackageManagerName, string[]> = {
   pnpm: ['pnpm-workspace.yaml', '.npmrc', '.pnpmfile.cjs', '.pnpmfile.mjs'],
   yarn: ['.yarnrc.yml', '.npmrc'],
@@ -41,116 +45,176 @@ export const WORKSPACE_FILES: Record<PackageManagerName, string[]> = {
 };
 
 export interface PackageManagerInfo {
-  /** Package manager name. */
   name: PackageManagerName;
-  /** Pinned version, if resolved from packageManager / devEngines. */
   version: string | undefined;
-  /** Whether corepack is on PATH and the pm was detected via packageManager field. */
   useCorepack: boolean;
-  /**
-   * The canonical lock-file name for this pm (used to copy into the output dir).
-   */
-  lockFile: string;
-  /** Fully-resolved install command argv (binary + args). */
   installCommand: [string, ...string[]];
-  /** Workspace config files to copy into the output dir. */
   workspaceFiles: string[];
-  /**
-   * The original `packageManager` string (e.g. `"pnpm@9.0.0"`) to write into
-   * the output package.json so corepack activates correctly.
-   */
   packageManagerField: string | undefined;
+  nearestPackageJson: string | undefined;
 }
 
-/** Returns true when corepack is available on PATH. */
-export const isCorepackAvailable = (): boolean => {
-  const result = spawnSync('corepack', ['--version'], { encoding: 'utf8' });
-  return !result.error && result.status === 0;
+const COREPACK_PROBE_TIMEOUT_MS = 5000;
+
+let corepackAvailableCache: boolean | undefined;
+
+export const resetCorepackCache = (): void => {
+  corepackAvailableCache = undefined;
 };
+
+export const isCorepackAvailable = (): boolean => {
+  if (corepackAvailableCache !== undefined) {
+    return corepackAvailableCache;
+  }
+  const result = spawnSync('corepack', ['--version'], {
+    encoding: 'utf8',
+    timeout: COREPACK_PROBE_TIMEOUT_MS,
+  });
+
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
+    return false;
+  }
+  corepackAvailableCache = !result.error && result.status === 0;
+  return corepackAvailableCache;
+};
+
+const isInside = (parent: string, child: string): boolean => {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+/**
+ * Yields the package.json paths between `startDir` and `projectRoot` (inclusive),
+ * nearest first. In a monorepo the leaf package (nearest the handler) is honored
+ * before the repo root, so a `packageManager` / `devEngines` field declared in a
+ * sub-package is not missed. When `startDir` is not inside `projectRoot` (e.g. an
+ * explicit projectRoot was passed), only `projectRoot` is considered.
+ */
+function* packageJsonChain(startDir: string, projectRoot: string): Generator<string> {
+  const root = path.resolve(projectRoot);
+  const start = path.resolve(startDir);
+
+  if (!isInside(root, start)) {
+    yield path.join(root, 'package.json');
+    return;
+  }
+
+  let dir = start;
+  while (dir !== root) {
+    yield path.join(dir, 'package.json');
+    dir = path.dirname(dir);
+  }
+  yield path.join(root, 'package.json');
+}
 
 /**
  * Detect the package manager for a given project root directory.
  *
  * Detection order:
- *   1. `package.json#packageManager` (corepack field)
- *   2. `package.json#devEngines.packageManager`
- *   3. Lock file present in `projectRoot`
+ *   1. `package.json#packageManager` (corepack field), nearest package first
+ *   2. `package.json#devEngines.packageManager`, nearest package first
+ *   3. The already-discovered lock file (`lockFilePath`), else a lock file in
+ *      `projectRoot`
  *   4. npm fallback
+ *
+ * Lock discovery and package-manager detection are anchored to the same root:
+ * pass the lock file resolved by `findLockFile` as `options.lockFilePath` so
+ * step 3 agrees with it, and `options.startDir` (the directory of the handler
+ * entry) so steps 1-2 walk up from the leaf package rather than inspecting only
+ * `projectRoot`.
  */
-export const detectPackageManager = (projectRoot: string): PackageManagerInfo => {
-  const pkgPath = path.join(projectRoot, 'package.json');
+export const detectPackageManager = (
+  projectRoot: string,
+  options: { lockFilePath?: string; startDir?: string; ignoreScripts?: boolean } = {},
+): PackageManagerInfo => {
+  const { lockFilePath, startDir = process.cwd(), ignoreScripts = false } = options;
 
-  if (fs.existsSync(pkgPath)) {
+  const lockPmName = lockFilePath ? lockFilePackageManager(path.basename(lockFilePath)) : undefined;
+
+  let nearestPackageJson: string | undefined;
+  const info = (
+    name: PackageManagerName,
+    version?: string,
+    useCorepack = false,
+    packageManagerField?: string,
+  ): PackageManagerInfo =>
+    buildInfo({
+      name,
+      version,
+      useCorepack,
+      packageManagerField,
+      projectRoot,
+      ignoreScripts,
+      lockFilePath,
+      nearestPackageJson,
+    });
+
+  const assertLockConsistent = (
+    name: PackageManagerName,
+    source: string,
+    pkgPath: string,
+  ): void => {
+    if (lockPmName && name !== lockPmName) {
+      throw new ValidationError(
+        `Package manager mismatch: ${source} in ${pkgPath} selects '${name}', but the ` +
+          `resolved lock file ${lockFilePath} is a '${lockPmName}' lock file. Running ` +
+          `'${name}' against a '${lockPmName}' lock file would ignore or rewrite it. ` +
+          `Reconcile the field with the lock file, or pass an explicit \`depsLockFilePath\` ` +
+          `for '${name}'.`,
+      );
+    }
+  };
+
+  for (const pkgPath of packageJsonChain(startDir, projectRoot)) {
+    if (!fs.existsSync(pkgPath)) {
+      continue;
+    }
+    nearestPackageJson ??= pkgPath;
     const parsed: unknown = parseJsonFile(pkgPath);
+    if (!isRecord(parsed)) {
+      continue;
+    }
 
-    if (isRecord(parsed)) {
-      // 1. packageManager field (e.g. "pnpm@9.0.0")
-      if (typeof parsed.packageManager === 'string') {
-        const m = parsed.packageManager.match(/^(npm|yarn|pnpm|bun)@([^\s+]+)/);
-        if (m) {
-          // Safe cast: the regex /^(npm|yarn|pnpm|bun)@/ guarantees m[1] is a
-          // PackageManagerName. TypeScript cannot narrow regex capture groups beyond
-          // string | undefined.
-          const name = m[1] as PackageManagerName;
-          const version = m[2];
-          const corepack = isCorepackAvailable();
-          return buildInfo(name, version, corepack, parsed.packageManager, projectRoot);
-        }
+    if (typeof parsed.packageManager === 'string') {
+      const m = parsed.packageManager.match(/^(npm|yarn|pnpm|bun)@([^\s+]+)/);
+      if (m) {
+        const name = m[1] as PackageManagerName;
+        assertLockConsistent(name, 'the `packageManager` field', pkgPath);
+        return info(name, m[2], isCorepackAvailable(), parsed.packageManager);
       }
+    }
 
-      // 2. devEngines.packageManager
-      if (isRecord(parsed.devEngines)) {
-        const devEnginesPm = parsed.devEngines.packageManager;
-        if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
-          const name = devEnginesPm.name;
-          const version =
-            typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
-          return buildInfo(name, version, false, undefined, projectRoot);
-        }
+    if (isRecord(parsed.devEngines)) {
+      const devEnginesPm = parsed.devEngines.packageManager;
+      if (isRecord(devEnginesPm) && isPackageManagerName(devEnginesPm.name)) {
+        const name = devEnginesPm.name;
+        assertLockConsistent(name, 'the `devEngines.packageManager` field', pkgPath);
+        const version = typeof devEnginesPm.version === 'string' ? devEnginesPm.version : undefined;
+        return info(name, version);
       }
     }
   }
 
-  // 3. Lockfile detection
+  if (lockPmName) {
+    return info(lockPmName);
+  }
+
   for (const [lockFile, pmName] of LOCK_FILE_PM) {
     if (fs.existsSync(path.join(projectRoot, lockFile))) {
-      return buildInfo(pmName, undefined, false, undefined, projectRoot);
+      return info(pmName);
     }
   }
 
-  // 4. Fallback
-  return buildInfo('npm', undefined, false, undefined, projectRoot);
-};
-
-const getLockFile = (name: PackageManagerName, projectRoot: string): string => {
-  switch (name) {
-    case 'yarn':
-      return LockFile.YARN;
-    case 'pnpm':
-      return LockFile.PNPM;
-    case 'bun':
-      // Prefer the text lock file (bun.lock); fall back to the binary one (bun.lockb).
-      if (fs.existsSync(path.join(projectRoot, LockFile.BUN_LOCK))) {
-        return LockFile.BUN_LOCK;
-      }
-      if (fs.existsSync(path.join(projectRoot, LockFile.BUN))) {
-        return LockFile.BUN;
-      }
-      // Neither present (e.g. bun came from the packageManager field): default to
-      // the modern text lock file name.
-      return LockFile.BUN_LOCK;
-    default:
-      return LockFile.NPM;
-  }
+  return info('npm');
 };
 
 const buildInstallCommand = (
   name: PackageManagerName,
   useCorepack: boolean,
   projectRoot: string,
+  ignoreScripts: boolean,
+  lockFilePath: string | undefined,
 ): [string, ...string[]] => {
-  // When corepack is active, prefix with "corepack <pm>" so the pinned
-  // version declared in the output package.json is honoured.
   const runner: [string, ...string[]] = useCorepack ? ['corepack', name] : [name];
 
   switch (name) {
@@ -165,54 +229,85 @@ const buildInstallCommand = (
     case 'yarn':
       return [...runner, 'install', '--no-immutable'];
     case 'bun':
-      return [...runner, 'install', '--backend', 'copyfile'];
+      return [
+        ...runner,
+        'install',
+        '--backend',
+        'copyfile',
+        ...(ignoreScripts ? ['--ignore-scripts'] : []),
+      ];
     default: {
-      // Use `npm ci` only when package-lock.json is present; it requires the
-      // lock file and will fail when npm was detected via the fallback path
-      // (no lock file found). Fall back to `npm install` in that case.
-      // Assumes the lock file copied into the install dir is package-lock.json,
-      // which holds whenever npm is the detected package manager.
-      const hasLockFile = fs.existsSync(path.join(projectRoot, LockFile.NPM));
-      return hasLockFile ? [...runner, 'ci'] : [...runner, 'install'];
+      const willCopyNpmLock = lockFilePath
+        ? fs.existsSync(lockFilePath) && path.basename(lockFilePath) === LockFile.NPM
+        : fs.existsSync(path.join(projectRoot, LockFile.NPM));
+      return willCopyNpmLock ? [...runner, 'ci'] : [...runner, 'install'];
     }
   }
 };
 
-const buildInfo = (
-  name: PackageManagerName,
-  version: string | undefined,
-  useCorepack: boolean,
-  packageManagerField: string | undefined,
-  projectRoot: string,
-): PackageManagerInfo => ({
+interface BuildInfoArgs {
+  name: PackageManagerName;
+  version: string | undefined;
+  useCorepack: boolean;
+  packageManagerField: string | undefined;
+  projectRoot: string;
+  ignoreScripts: boolean;
+  lockFilePath: string | undefined;
+  nearestPackageJson: string | undefined;
+}
+
+const buildInfo = ({
   name,
   version,
   useCorepack,
-  lockFile: getLockFile(name, projectRoot),
-  installCommand: buildInstallCommand(name, useCorepack, projectRoot),
+  packageManagerField,
+  projectRoot,
+  ignoreScripts,
+  lockFilePath,
+  nearestPackageJson,
+}: BuildInfoArgs): PackageManagerInfo => ({
+  name,
+  version,
+  useCorepack,
+  installCommand: buildInstallCommand(name, useCorepack, projectRoot, ignoreScripts, lockFilePath),
   workspaceFiles: WORKSPACE_FILES[name],
   packageManagerField,
+  nearestPackageJson,
 });
 
-/**
- * Filters pnpm-workspace.yaml content to only include patchedDependencies
- * entries for packages in nodeModules. Relevant patch files are copied to
- * outputDir. Entries for packages not being installed are stripped to avoid
- * ERR_PNPM_UNUSED_PATCH.
- *
- * This is an intentionally line-oriented matcher targeting the flat
- * `patchedDependencies:` block pnpm writes; it is not a general YAML parser and
- * does not handle nested or flow-style content.
- */
+const injectIgnoreScripts = (outputDir: string, pm: PackageManagerInfo): void => {
+  const ensureLine = (file: string, key: RegExp, line: string): void => {
+    const target = path.join(outputDir, file);
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+    if (key.test(existing)) {
+      return;
+    }
+    const sep = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    fs.writeFileSync(target, `${existing}${sep}${line}\n`);
+  };
+
+  switch (pm.name) {
+    case 'npm':
+    case 'pnpm':
+      ensureLine('.npmrc', /^ignore-scripts\s*=/m, 'ignore-scripts=true');
+      break;
+    case 'yarn':
+      ensureLine('.yarnrc.yml', /^enableScripts\s*:/m, 'enableScripts: false');
+      break;
+    case 'bun':
+      break;
+  }
+};
+
 const filterPnpmWorkspaceYaml = (
   content: string,
   nodeModules: string[],
   projectRoot: string,
   outputDir: string,
-): string => {
+): { content: string; copiedFiles: string[] } => {
   const sectionMatch = content.match(/^(patchedDependencies:\n)((?:[ \t]+[^\n]*\n?)*)/m);
   if (!sectionMatch) {
-    return content;
+    return { content, copiedFiles: [] };
   }
 
   const fullMatch = sectionMatch[0];
@@ -231,34 +326,47 @@ const filterPnpmWorkspaceYaml = (
     }
   }
 
+  const copiedFiles: string[] = [];
   for (const [, relativePath] of relevantEntries) {
     const src = path.join(projectRoot, relativePath);
+    const dest = path.join(outputDir, relativePath);
+
+    if (!isInside(projectRoot, src) || !isInside(outputDir, dest)) {
+      throw new ValidationError(
+        `Refusing to copy pnpm patch '${relativePath}': it resolves outside the project root or output directory.`,
+      );
+    }
     if (!fs.existsSync(src)) {
       continue;
     }
-    const dest = path.join(outputDir, relativePath);
+
+    const realSrc = fs.realpathSync(src);
+    if (!isInside(fs.realpathSync(projectRoot), realSrc)) {
+      throw new ValidationError(
+        `Refusing to copy pnpm patch '${relativePath}': it resolves (via symlink) outside the project root.`,
+      );
+    }
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+    fs.copyFileSync(realSrc, dest);
+    copiedFiles.push(dest);
   }
 
   if (relevantEntries.length === 0) {
-    return content.replace(fullMatch, '');
+    return { content: content.replace(fullMatch, ''), copiedFiles };
   }
 
   const newLines = relevantEntries.map(([key, val]) => `  '${key}': ${val}`);
-  return content.replace(fullMatch, `${header}${newLines.join('\n')}\n`);
+  return { content: content.replace(fullMatch, `${header}${newLines.join('\n')}\n`), copiedFiles };
 };
 
-/**
- * Copy workspace config files (e.g. pnpm-workspace.yaml, .npmrc) from
- * `projectRoot` into `outputDir`, skipping any that don't exist.
- */
 export const copyWorkspaceFiles = (
   projectRoot: string,
   outputDir: string,
   pm: PackageManagerInfo,
   nodeModules: string[] = [],
-): void => {
+  ignoreScripts = false,
+): string[] => {
+  const stagedFiles: string[] = [];
   for (const file of pm.workspaceFiles) {
     const src = path.join(projectRoot, file);
     if (!fs.existsSync(src)) {
@@ -267,9 +375,17 @@ export const copyWorkspaceFiles = (
     const dest = path.join(outputDir, file);
     if (pm.name === 'pnpm' && file === 'pnpm-workspace.yaml') {
       const content = fs.readFileSync(src, 'utf8');
-      fs.writeFileSync(dest, filterPnpmWorkspaceYaml(content, nodeModules, projectRoot, outputDir));
+      const filtered = filterPnpmWorkspaceYaml(content, nodeModules, projectRoot, outputDir);
+      fs.writeFileSync(dest, filtered.content);
+      stagedFiles.push(...filtered.copiedFiles);
     } else {
       fs.copyFileSync(src, dest);
     }
   }
+
+  if (ignoreScripts) {
+    injectIgnoreScripts(outputDir, pm);
+  }
+
+  return stagedFiles;
 };

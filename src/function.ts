@@ -1,25 +1,19 @@
 import * as fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import type { Construct } from 'constructs';
 import { Bundling } from './bundling.ts';
 import { ValidationError } from './errors.ts';
-import { LOCK_FILE_NAMES } from './package-manager.ts';
+import { LOCK_FILE_NAMES, lockFilePackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
-import { callsites, findUpMultiple } from './util.ts';
+import { findUpMultiple } from './util.ts';
 
 export interface NodejsFunctionProps extends lambda.FunctionOptions {
   /**
    * Path to the handler entry file (JS or TS).
-   *
-   * If omitted, the entry is derived from the file that calls
-   * `new NodejsFunction(...)` and the construct id:
-   *   `<defining-file>.<id>.(ts|js|mjs|mts|cts|cjs)`
-   *
    * Relative paths are resolved against the process working directory.
    */
-  readonly entry?: string;
+  readonly entry: string;
 
   /**
    * Exported handler function name.
@@ -64,9 +58,10 @@ export class NodejsFunction extends lambda.Function {
     const runtime = props.runtime ?? lambda.Runtime.NODEJS_LATEST;
     const architecture = props.architecture ?? lambda.Architecture.X86_64;
 
-    const entry = path.resolve(findEntry(id, props.entry));
+    const entry = validateEntry(props.entry);
     const depsLockFilePath = findLockFile(props.depsLockFilePath);
     const projectRoot = path.resolve(props.projectRoot ?? path.dirname(depsLockFilePath));
+    const bundlerConfig = findBundlerConfig(props.bundling.bundlerConfig, projectRoot);
 
     const handlerFn = resolveHandlerFn(props.handler);
 
@@ -75,6 +70,7 @@ export class NodejsFunction extends lambda.Function {
       runtime,
       code: Bundling.bundle({
         ...props.bundling,
+        bundlerConfig,
         entry,
         runtime,
         architecture,
@@ -86,18 +82,6 @@ export class NodejsFunction extends lambda.Function {
   }
 }
 
-/**
- * Resolve the exported handler function name.
- *
- * Every bridge emits the bundle as a single `index.js`, so only the exported
- * function name is meaningful and the Lambda handler is always `index.<fn>`.
- * Lambda splits a handler on the LAST dot (everything before is the module path,
- * everything after is the export), so any `file.` / `path/file.` prefix the
- * caller supplies can only point at a file that does not exist in the asset and
- * is discarded. The remaining segment is validated as a JS identifier so a
- * malformed handler fails at synth time rather than with a runtime
- * `ImportModuleError`.
- */
 const resolveHandlerFn = (handler?: string): string => {
   const handlerName = (handler ?? 'handler').trim();
   const handlerFn = handlerName.slice(handlerName.lastIndexOf('.') + 1);
@@ -107,6 +91,33 @@ const resolveHandlerFn = (handler?: string): string => {
     );
   }
   return handlerFn;
+};
+
+const validateEntry = (entry: string): string => {
+  if (!/\.(js|ts|mjs|mts|cts|cjs)$/.test(entry)) {
+    throw new ValidationError('Only JavaScript or TypeScript entry files are supported.');
+  }
+  const resolved = path.resolve(entry);
+  if (!fs.existsSync(resolved)) {
+    throw new ValidationError(`Cannot find entry file at ${resolved}.`);
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw new ValidationError(`Entry path ${resolved} is not a file.`);
+  }
+  return resolved;
+};
+
+const findBundlerConfig = (bundlerConfig: string, projectRoot: string): string => {
+  const resolved = path.isAbsolute(bundlerConfig)
+    ? bundlerConfig
+    : path.resolve(projectRoot, bundlerConfig);
+  if (!fs.existsSync(resolved)) {
+    throw new ValidationError(`Cannot find bundler config at ${resolved}.`);
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    throw new ValidationError(`Bundler config path ${resolved} is not a file.`);
+  }
+  return resolved;
 };
 
 const findLockFile = (depsLockFilePath?: string): string => {
@@ -126,105 +137,15 @@ const findLockFile = (depsLockFilePath?: string): string => {
       'Cannot find a package lock file. Please specify it with `depsLockFilePath`.',
     );
   }
+
   if (lockFiles.length > 1) {
-    throw new ValidationError(
-      `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
-    );
+    const managers = new Set(lockFiles.map((f) => lockFilePackageManager(path.basename(f))));
+    if (managers.size > 1) {
+      throw new ValidationError(
+        `Multiple package lock files found: ${lockFiles.join(', ')}. Please specify the desired one with \`depsLockFilePath\`.`,
+      );
+    }
   }
+
   return lockFiles[0] as string;
 };
-
-const ENTRY_EXTENSIONS = ['.ts', '.js', '.mjs', '.mts', '.cts', '.cjs'];
-
-const findEntry = (id: string, entry?: string): string => {
-  if (entry) {
-    // Keep the accepted extensions in lock-step with ENTRY_EXTENSIONS so an
-    // explicitly-passed entry and an auto-detected one support the same set.
-    if (!/\.(js|ts|mjs|mts|cts|cjs)$/.test(entry)) {
-      throw new ValidationError('Only JavaScript or TypeScript entry files are supported.');
-    }
-    if (!fs.existsSync(entry)) {
-      throw new ValidationError(`Cannot find entry file at ${entry}.`);
-    }
-    if (!fs.statSync(entry).isFile()) {
-      throw new ValidationError(`Entry path ${entry} is not a file.`);
-    }
-    return entry;
-  }
-
-  const definingFile = findDefiningFile();
-  const extname = path.extname(definingFile);
-
-  for (const ext of ENTRY_EXTENSIONS) {
-    // Use a replacer function so special replacement sequences ($&, $', etc.)
-    // inside `id` are never interpreted by String.prototype.replace.
-    const candidate = definingFile.replace(
-      new RegExp(`${escapeRegExp(extname)}$`),
-      () => `.${id}${ext}`,
-    );
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const tried = ENTRY_EXTENSIONS.map((ext) =>
-    definingFile.replace(new RegExp(`${escapeRegExp(extname)}$`), () => `.${id}${ext}`),
-  ).join(', ');
-
-  throw new ValidationError(`Cannot find handler file. Tried: ${tried}`);
-};
-
-const findDefiningFile = (): string => {
-  const sites = callsites();
-  let definingIndex: number | undefined;
-
-  for (const [index, site] of sites.entries()) {
-    if (site.getFunctionName() === 'NodejsFunction') {
-      // Start one frame after NodejsFunction itself; skip super()-chain frames
-      // (getTypeName() === null && isConstructor()) to reach the real call site.
-      let depth = index + 1;
-      while (
-        depth < sites.length &&
-        sites[depth]?.getTypeName() === null &&
-        sites[depth]?.isConstructor()
-      ) {
-        depth++;
-      }
-      // Skip one factory-wrapper frame (null type, non-constructor) between
-      // NodejsFunction and the CDK construct constructor.
-      if (
-        depth + 1 < sites.length &&
-        sites[depth]?.getTypeName() === null &&
-        !sites[depth]?.isConstructor() &&
-        sites[depth + 1]?.isConstructor() &&
-        sites[depth + 1]?.getTypeName() !== null
-      ) {
-        depth++;
-      }
-      definingIndex = depth;
-      break;
-    }
-  }
-
-  if (definingIndex === undefined) {
-    throw new ValidationError('Cannot find defining file.');
-  }
-
-  const definingFile = sites[definingIndex];
-
-  const fileName = definingFile?.getFileName();
-
-  if (!fileName) {
-    throw new ValidationError('Cannot find defining file.');
-  }
-
-  // Normalise file:// URLs added by ESM loaders.  fileURLToPath handles
-  // Windows drive letters (file:///C:/...) correctly; a plain regex strip
-  // would leave a leading slash that path.resolve cannot interpret on Windows.
-  if (fileName.startsWith('file://')) {
-    return fileURLToPath(fileName);
-  }
-  return fileName;
-};
-
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

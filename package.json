@@ -2,6 +2,23 @@
   "name": "aws-lambda-nodejs-unplugin",
   "version": "0.0.0",
   "description": "A drop-in nodejs first replacement for aws_lambda_nodejs.NodejsFunction enabling handler bundling with unplugin supported bundlers.",
+  "keywords": [
+    "aws-cdk",
+    "aws-lambda",
+    "bundler",
+    "cdk",
+    "esbuild",
+    "farm",
+    "lambda",
+    "nodejs",
+    "nodejs-function",
+    "rolldown",
+    "rollup",
+    "rspack",
+    "unplugin",
+    "vite",
+    "webpack"
+  ],
   "homepage": "https://github.com/zbrydon/aws-lambda-nodejs-unplugin#readme",
   "bugs": {
     "url": "https://github.com/zbrydon/aws-lambda-nodejs-unplugin/issues"
@@ -34,6 +51,9 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
+    "imports": {
+      "#src/*": "./dist/*"
+    },
     "exports": {
       ".": {
         "import": "./dist/index.mjs",
@@ -76,8 +96,7 @@
     "typescript": "6.0.3",
     "vite": "8.0.16",
     "vitest": "4.1.8",
-    "webpack": "5.107.2",
-    "zod": "4.4.3"
+    "webpack": "5.107.2"
   },
   "peerDependencies": {
     "@farmfe/core": ">=1.0.0",

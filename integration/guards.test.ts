@@ -1,0 +1,184 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as cdk from 'aws-cdk-lib';
+import { describe, expect, it } from 'vitest';
+import { Bundling } from '../src/bundling.ts';
+import { BASE_BUNDLING_PROPS } from './test-utils.ts';
+
+const bundle = (overrides: Record<string, unknown>, outputDir: string): boolean =>
+  new Bundling({
+    ...BASE_BUNDLING_PROPS,
+    entry: path.resolve('integration/fixtures/handler.ts'),
+    ...overrides,
+  } as ConstructorParameters<typeof Bundling>[0]).local.tryBundle(outputDir, {
+    image: cdk.DockerImage.fromRegistry('dummy'),
+  });
+
+describe('single-file guards', () => {
+  it('rejects esbuild code splitting', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-esbuild-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'esbuild',
+            bundlerConfig: path.resolve('integration/fixtures/esbuild/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/splitting/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects farm partialBundling groups', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-farm-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'farm',
+            bundlerConfig: path.resolve('integration/fixtures/farm/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects rollup multi-output configs', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-multi-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'rollup',
+            bundlerConfig: path.resolve('integration/fixtures/rollup/multi-output.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/Multiple/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects webpack optimization.splitChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-webpack-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'webpack',
+            bundlerConfig: path.resolve('integration/fixtures/webpack/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects rspack optimization.splitChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-rspack-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'rspack',
+            bundlerConfig: path.resolve('integration/fixtures/rspack/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects vite output.manualChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-vite-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'vite',
+            bundlerConfig: path.resolve('integration/fixtures/vite/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('rejects rolldown output.manualChunks', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-rolldown-'));
+    try {
+      expect(() =>
+        bundle(
+          {
+            bundler: 'rolldown',
+            bundlerConfig: path.resolve('integration/fixtures/rolldown/splitting.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toThrow(/not supported/);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('allows rolldown dynamic-import chunks alongside the entry', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-dynamic-'));
+    try {
+      expect(
+        bundle(
+          {
+            entry: path.resolve('integration/fixtures/dynamic-import/handler.ts'),
+            bundler: 'rolldown',
+            bundlerConfig: path.resolve('integration/fixtures/rolldown/esm.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toBe(true);
+
+      expect(fs.existsSync(path.join(outputDir, 'index.mjs'))).toBe(true);
+
+      const chunks = fs
+        .readdirSync(outputDir)
+        .filter((file) => /\.(js|mjs|cjs)$/.test(file) && file !== 'index.mjs');
+      expect(chunks.length).toBeGreaterThan(0);
+
+      const pkg = JSON.parse(fs.readFileSync(path.join(outputDir, 'package.json'), 'utf-8'));
+      expect(pkg.type).toBe('module');
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('accepts an empty rollup output and emits a single ESM handler', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-roll-empty-'));
+    try {
+      expect(
+        bundle(
+          {
+            bundler: 'rollup',
+            bundlerConfig: path.resolve('integration/fixtures/rollup/empty-output.config.mjs'),
+          },
+          outputDir,
+        ),
+      ).toBe(true);
+
+      expect(fs.existsSync(path.join(outputDir, 'index.mjs'))).toBe(true);
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
