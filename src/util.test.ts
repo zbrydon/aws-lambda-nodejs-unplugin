@@ -2,41 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ValidationError } from './errors.ts';
-import {
-  callsites,
-  extractDependencies,
-  findUp,
-  findUpMultiple,
-  isCallSite,
-  parseJsonFile,
-} from './util.ts';
-
-describe('isCallSite', () => {
-  it('returns false for non-record values', () => {
-    expect(isCallSite(null)).toBe(false);
-    expect(isCallSite('string')).toBe(false);
-    expect(isCallSite(42)).toBe(false);
-  });
-
-  it('returns false for a plain object missing getFileName / getFunctionName', () => {
-    expect(isCallSite({})).toBe(false);
-    expect(isCallSite({ getFileName: 'not a function' })).toBe(false);
-  });
-
-  it('returns true for an object with the required function properties', () => {
-    expect(isCallSite({ getFileName: () => '', getFunctionName: () => '' })).toBe(true);
-  });
-});
-
-describe('callsites', () => {
-  it('returns an array of call site objects', () => {
-    const sites = callsites();
-    expect(Array.isArray(sites)).toBe(true);
-    expect(sites.length).toBeGreaterThan(0);
-    expect(typeof sites[0]!.getFileName()).toBe('string');
-    expect(typeof sites[0]!.getLineNumber()).toBe('number');
-  });
-});
+import { extractDependencies, findUp, findUpMultiple, parseJsonFile } from './util.ts';
 
 describe('findUpMultiple', () => {
   it('returns files found in the current directory', () => {
@@ -56,7 +22,6 @@ describe('findUpMultiple', () => {
   });
 
   it('returns multiple files found at the same level', () => {
-    // package-lock.json and pnpm-lock.yaml never coexist here, but package.json does
     const results = findUpMultiple(['package.json', 'pnpm-lock.yaml']);
     expect(results.length).toBeGreaterThanOrEqual(1);
   });
@@ -149,18 +114,41 @@ describe('extractDependencies', () => {
     expect(result.local).toBe('file:/abs/path');
   });
 
+  it.each(['file:', 'file:   '])('throws on a file: specifier with an empty path (%p)', (spec) => {
+    fs.writeFileSync(tmpPkgPath, JSON.stringify({ dependencies: { local: spec } }));
+    expect(() => extractDependencies(tmpPkgPath, ['local'])).toThrow(
+      /'file:' dependency with an empty path/,
+    );
+  });
+
+  it.each(['workspace:*', 'workspace:^1.0.0', 'link:../pkg', 'catalog:', 'catalog:react'])(
+    'resolves %p specifier to the concrete installed version via the require fallback',
+    (spec) => {
+      fs.writeFileSync(tmpPkgPath, JSON.stringify({ dependencies: { vitest: spec } }));
+      const result = extractDependencies(tmpPkgPath, ['vitest']);
+
+      expect(result.vitest).not.toBe(spec);
+      expect(result.vitest).toMatch(/^\d+\.\d+\.\d+/);
+    },
+  );
+
+  it('throws when a workspace: specifier cannot be resolved from installed modules', () => {
+    fs.writeFileSync(
+      tmpPkgPath,
+      JSON.stringify({ dependencies: { __nonexistent_module__: 'workspace:*' } }),
+    );
+    expect(() => extractDependencies(tmpPkgPath, ['__nonexistent_module__'])).toThrow(
+      ValidationError,
+    );
+  });
+
   it('falls back to require for installed transitive deps', () => {
-    // 'vitest' is actually installed, so its version is resolvable even if
-    // not in the pkg JSON when we omit it from the keys.
     fs.writeFileSync(tmpPkgPath, JSON.stringify({}));
     const result = extractDependencies(tmpPkgPath, ['vitest']);
     expect(result.vitest).toMatch(/^\d+\.\d+/);
   });
 
   it('dependencies version takes precedence over peerDependencies when both declare the same module', () => {
-    // Regression: peerDependencies previously spread last and overwrote the
-    // pinned version from dependencies, causing a range like >=7.0.0 to win
-    // over an explicit 8.11.3 in the Lambda output package.json.
     fs.writeFileSync(
       tmpPkgPath,
       JSON.stringify({
@@ -185,54 +173,30 @@ describe('extractDependencies', () => {
   });
 
   it('throws ValidationError for a module with an empty version string instead of silently falling through', () => {
-    // Regression: !version was true for '', so the fallback require() would
-    // resolve whatever was installed, giving no error about the malformed entry.
     fs.writeFileSync(tmpPkgPath, JSON.stringify({ dependencies: { 'some-mod': '' } }));
     expect(() => extractDependencies(tmpPkgPath, ['some-mod'])).toThrow(ValidationError);
   });
 
   it('throws ValidationError when the package.json file is not a JSON object', () => {
-    // e.g. someone accidentally writes an array or null as their package.json
     fs.writeFileSync(tmpPkgPath, JSON.stringify([]));
     expect(() => extractDependencies(tmpPkgPath, ['lodash'])).toThrow(ValidationError);
   });
 
   it('require fallback is anchored to the entry package directory, not process.cwd()', () => {
-    // When the module is not in package.json, resolution must start from the
-    // directory that contains the package.json, not from process.cwd().
-    // vitest is installed in the project root; if we anchor to a temp dir
-    // that is NOT the project root, createRequire still resolves upward through
-    // node_modules, so the exact version may vary, but the call must not throw.
-    //
-    // A more important property: the pkgPath directory is used, not process.cwd().
-    // We verify this indirectly: if fromDir were wrong (e.g. '/') the require
-    // would still silently succeed or fail gracefully; what we guard against
-    // is the old bug of always using process.cwd() which in a monorepo would
-    // resolve the wrong package root.  The unit-testable invariant is that
-    // the version is resolved from the same directory as the package.json.
     fs.writeFileSync(tmpPkgPath, JSON.stringify({}));
-    // vitest is reachable from both cwd and the temp dir (via node_modules hierarchy),
-    // so this should resolve successfully.
+
     expect(() => extractDependencies(tmpPkgPath, ['vitest'])).not.toThrow();
     const result = extractDependencies(tmpPkgPath, ['vitest']);
     expect(result.vitest).toMatch(/^\d+\.\d+/);
   });
 
   it('require fallback returns undefined when the installed package.json version is not a string', () => {
-    // Exercises the defensive `return undefined` path in tryGetModuleVersionFromRequire
-    // for the (uncommon) case where require succeeds but pkg.version is not a string.
-    // We do this by planting a fake module in a local node_modules whose package.json
-    // carries a numeric version field.
     const pkgDir = path.dirname(tmpPkgPath);
     const fakeModDir = path.join(pkgDir, 'node_modules', 'fake-non-string-ver');
     fs.mkdirSync(fakeModDir, { recursive: true });
     fs.writeFileSync(path.join(fakeModDir, 'package.json'), JSON.stringify({ version: 42 }));
     fs.writeFileSync(tmpPkgPath, JSON.stringify({}));
 
-    // tryGetModuleVersionFromPkg returns undefined (module absent from pkg.json).
-    // tryGetModuleVersionFromRequire resolves fake-non-string-ver/package.json,
-    // finds version === 42 (number), fails the typeof check, and returns undefined.
-    // extractDependencies then throws because no version was resolved at all.
     expect(() => extractDependencies(tmpPkgPath, ['fake-non-string-ver'])).toThrow(ValidationError);
   });
 });

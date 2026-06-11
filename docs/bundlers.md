@@ -5,7 +5,7 @@ Each bundler requires a config file that exports a default configuration object.
 Your config does **not** need to:
 
 - Read env vars for the entry or output path (the driver injects those).
-- Import `createLambdaUnplugin` (the driver handles externals internally).
+- Import or wrap anything from this package (the driver calls the bundler directly; there is no plugin to install in your config).
 
 Because the config is a plain object export, the same file works for local dev builds: just add `entryPoints`/`input`/`entry` and `outfile`/`output.dir`/`output.path` for the paths you want locally. The driver overrides those fields at synthesis time.
 
@@ -22,11 +22,25 @@ Specifically, for the single Lambda entry point the driver overrides:
 
 The Lambda **handler** is always `index.<functionName>` regardless of output naming — the runtime resolves the `.js`/`.mjs` extension. Because the file part is fixed, only the exported function name in the `handler` prop is significant; a `handler` like `'myFile.handler'` is reduced to `index.handler`.
 
+### Default output format per bundler
+
+The format (CJS vs ESM) is read from each bundler's own config, but the **default
+when you omit it differs by bundler**, so set it explicitly if you care:
+
+- **esbuild, webpack, Rspack** default to **CJS** (`index.js`). webpack/Rspack only
+  emit ESM when `output.module: true` (the driver injects the required
+  `experiments.outputModule` for you).
+- **Rollup, Rolldown, Vite, Farm** default to **ESM** (`index.mjs` + `type: module`).
+  Set `format: 'cjs'` (Farm: `compilation.output.format: 'cjs'`) for CommonJS.
+
+This is an intentional reflection of each bundler's native default rather than a
+normalized default imposed by the driver.
+
 Consequences worth knowing:
 
 - Any `entryFileNames` / `output.filename` / farm `entryFilename` you set is **overridden** — set it only for local dev builds.
 - **Multiple entry points are not supported**; the driver forces a single entry.
-- **Code splitting that renames or removes the entry chunk is not supported.** esbuild `splitting` is rejected with a clear error because it is incompatible with a single `outfile`. Rollup/Rolldown/Vite `preserveModules` likewise breaks the single-`index` assumption and should not be used for a Lambda handler.
+- **Secondary chunks are supported.** Code splitting from dynamic `import()` emits extra chunk files alongside `index`, and they ship together in the asset; the Lambda runtime loads them as normal. (For ESM, the `type: module` `package.json` ensures the `.js` chunks load as ES modules.) Only config that **renames or removes the entry chunk** is rejected with a clear error: esbuild `splitting` (incompatible with a single `outfile`), Rollup/Rolldown/Vite `preserveModules` and multiple `output` arrays, and webpack/Rspack `optimization.splitChunks`/`runtimeChunk` — these break the fixed `index.<handler>` resolution.
 
 ---
 

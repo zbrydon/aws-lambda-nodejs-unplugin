@@ -8,5 +8,5 @@ export const esmExternalsBase = {
   },
   mode: 'production',
   externalsType: 'module',
-  externals: { zod: 'zod' },
+  externals: { constructs: 'constructs' },
 };

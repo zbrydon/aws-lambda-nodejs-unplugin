@@ -1,15 +1,16 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ILocalBundling } from 'aws-cdk-lib';
 import * as cdk from 'aws-cdk-lib';
 import type { Architecture, AssetCode, Runtime } from 'aws-cdk-lib/aws-lambda';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { isEsmFormat } from './bridges/write-meta.ts';
 import { getBundler } from './bundlers/index.ts';
 import { ValidationError } from './errors.ts';
 import { copyWorkspaceFiles, detectPackageManager } from './package-manager.ts';
 import type { BundlingOptions } from './types.ts';
-import { extractDependencies, findUp, isRecord } from './util.ts';
+import { extractDependencies, isRecord, parseJsonFile } from './util.ts';
 
 export interface BundlingProps extends BundlingOptions {
   entry: string;
@@ -19,11 +20,46 @@ export interface BundlingProps extends BundlingOptions {
   projectRoot: string;
 }
 
-/** Human-readable description of how a spawned process terminated. */
+const SPAWN_MAX_BUFFER = 256 * 1024 * 1024;
+
 const describeExit = (result: { signal: NodeJS.Signals | null; status: number | null }): string =>
   result.signal != null
     ? `killed by signal ${result.signal}`
     : `exited with status ${result.status}`;
+
+const stderrTail = (stderr: string | Buffer | null | undefined, maxLines = 20): string => {
+  if (!stderr) {
+    return '';
+  }
+
+  const text = typeof stderr === 'string' ? stderr : stderr.toString('utf-8');
+  if (!text) {
+    return '';
+  }
+  const tail = text.trimEnd().split('\n').slice(-maxLines).join('\n');
+  return tail ? `\n\n${tail}` : '';
+};
+
+const checkSpawnResult = (
+  result: SpawnSyncReturns<string | Buffer>,
+  prefix: string,
+  { tail = false }: { tail?: boolean } = {},
+): void => {
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+      throw new ValidationError(`${prefix} timed out.${tail ? stderrTail(result.stderr) : ''}`);
+    }
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new ValidationError(
+      `${prefix} ${describeExit(result)}.${tail ? stderrTail(result.stderr) : ''}`,
+    );
+  }
+};
 
 /**
  * CDK bundling implementation that delegates to the user-supplied bundler.
@@ -75,18 +111,17 @@ export class Bundling implements cdk.BundlingOptions {
           [adapter.bridgeScriptPath, configPath, props.entry, outputDir],
           {
             env: process.env,
-            stdio: ['ignore', 'inherit', 'inherit'],
+            // Capture stderr (rather than inheriting it) so its tail can be
+            // attached to the thrown error; it is re-emitted below after exit.
+            stdio: ['ignore', 'inherit', 'pipe'],
             cwd: props.projectRoot,
             timeout: props.timeout,
+            encoding: 'utf-8',
+            maxBuffer: SPAWN_MAX_BUFFER,
           },
         );
 
-        if (bundleResult.error) {
-          throw bundleResult.error;
-        }
-        if (bundleResult.status !== 0) {
-          throw new ValidationError(`Bundler '${props.bundler}' ${describeExit(bundleResult)}.`);
-        }
+        checkSpawnResult(bundleResult, `Bundler '${props.bundler}'`, { tail: true });
 
         const metaPath = path.join(outputDir, '.lambda-bundle-meta');
         let isEsm = false;
@@ -96,10 +131,10 @@ export class Bundling implements cdk.BundlingOptions {
           // on). The `finally` only guarantees cleanup so a malformed meta file
           // never leaks into the bundled asset.
           try {
-            const parsed: unknown = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const parsed: unknown = parseJsonFile(metaPath);
             const format =
-              isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : null;
-            isEsm = format === 'esm' || format === 'es';
+              isRecord(parsed) && typeof parsed.format === 'string' ? parsed.format : undefined;
+            isEsm = isEsmFormat(format);
           } finally {
             fs.unlinkSync(metaPath);
           }
@@ -107,9 +142,19 @@ export class Bundling implements cdk.BundlingOptions {
 
         // 3. Install nodeModules
         if (props.nodeModules?.length) {
-          const pm = detectPackageManager(props.projectRoot);
+          // Anchor PM detection to the same lock file discovered for projectRoot,
+          // and walk up from the handler's directory so a leaf package.json that
+          // declares packageManager / devEngines is honored in a monorepo.
+          const pm = detectPackageManager(props.projectRoot, {
+            lockFilePath: props.depsLockFilePath,
+            startDir: path.dirname(props.entry),
+            ignoreScripts: props.ignoreScripts,
+          });
 
-          const pkgJsonPath = findUp('package.json', path.dirname(props.entry));
+          // detectPackageManager already walked from the handler dir up to
+          // projectRoot, so reuse the nearest package.json it found rather than
+          // re-walking the same chain with findUp.
+          const pkgJsonPath = pm.nearestPackageJson;
           if (!pkgJsonPath) {
             throw new ValidationError(
               'Cannot find a package.json. Using nodeModules requires a package.json.',
@@ -133,42 +178,54 @@ export class Bundling implements cdk.BundlingOptions {
           }
           fs.writeFileSync(path.join(outputDir, 'package.json'), JSON.stringify(outputPkg));
 
-          // Copy workspace config files so catalog: / workspace: resolve correctly.
-          copyWorkspaceFiles(props.projectRoot, outputDir, pm, props.nodeModules);
-
-          // Copy lock file.  Always source from the explicit depsLockFilePath
-          // (validated to exist in NodejsFunction) so a non-standard location
-          // passed by the caller is honoured rather than silently ignored.
-          if (fs.existsSync(props.depsLockFilePath)) {
-            fs.copyFileSync(
-              props.depsLockFilePath,
-              path.join(outputDir, path.basename(props.depsLockFilePath)),
+          // Copy workspace config files so catalog: / workspace: resolve correctly,
+          // then install, then strip those config files. The copy -> install ->
+          // cleanup sequence is wrapped in try/finally because the install-only
+          // config files (notably `.npmrc` / `.yarnrc.yml`, which frequently hold
+          // registry auth tokens) must never remain in the staged asset even when
+          // the install throws.
+          let stagedFiles: string[] = [];
+          try {
+            stagedFiles = copyWorkspaceFiles(
+              props.projectRoot,
+              outputDir,
+              pm,
+              props.nodeModules,
+              props.ignoreScripts,
             );
-          }
 
-          const [installBin, ...installArgs] = pm.installCommand;
-          const installResult = spawnSync(installBin, installArgs, {
-            env: process.env,
-            stdio: ['ignore', 'inherit', 'inherit'],
-            cwd: outputDir,
-            timeout: props.timeout,
-          });
+            // Copy lock file.  Always source from the explicit depsLockFilePath
+            // (validated to exist in NodejsFunction) so a non-standard location
+            // passed by the caller is honoured rather than silently ignored.
+            if (fs.existsSync(props.depsLockFilePath)) {
+              fs.copyFileSync(
+                props.depsLockFilePath,
+                path.join(outputDir, path.basename(props.depsLockFilePath)),
+              );
+            }
 
-          if (installResult.error) {
-            throw installResult.error;
-          }
-          if (installResult.status !== 0) {
-            throw new ValidationError(
-              `Package manager '${pm.name}' install ${describeExit(installResult)}.`,
-            );
-          }
+            const [installBin, ...installArgs] = pm.installCommand;
+            const installResult = spawnSync(installBin, installArgs, {
+              env: process.env,
+              stdio: ['ignore', 'inherit', 'pipe'],
+              cwd: outputDir,
+              timeout: props.timeout,
+              encoding: 'utf-8',
+              maxBuffer: SPAWN_MAX_BUFFER,
+            });
 
-          // Remove the install-only config files now that install is done. These
-          // (notably `.npmrc` / `.yarnrc.yml`) frequently hold registry auth
-          // tokens and are not needed at runtime, so they must never ship inside
-          // the deployed Lambda asset.
-          for (const file of pm.workspaceFiles) {
-            fs.rmSync(path.join(outputDir, file), { force: true });
+            checkSpawnResult(installResult, `Package manager '${pm.name}' install`, { tail: true });
+          } finally {
+            // Remove the install-only config files now that install is done (or
+            // has failed). These are not needed at runtime and may carry secrets,
+            // so they must never ship inside the deployed Lambda asset. The same
+            // applies to any pnpm patch files staged alongside pnpm-workspace.yaml.
+            for (const file of pm.workspaceFiles) {
+              fs.rmSync(path.join(outputDir, file), { force: true });
+            }
+            for (const file of stagedFiles) {
+              fs.rmSync(file, { force: true });
+            }
           }
         }
 
@@ -191,9 +248,6 @@ export class Bundling implements cdk.BundlingOptions {
   }
 
   private shell(cmd: string, cwd: string): void {
-    // Run through the platform default shell (`shell: true`) so command hooks
-    // work on Windows (cmd.exe) as well as POSIX systems, rather than hardcoding
-    // `bash`, which is frequently absent on Windows and minimal containers.
     const result = spawnSync(cmd, [], {
       env: process.env,
       stdio: ['ignore', 'inherit', 'inherit'],
@@ -201,11 +255,7 @@ export class Bundling implements cdk.BundlingOptions {
       shell: true,
       timeout: this.props.timeout,
     });
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
-      throw new ValidationError(`Command hook '${cmd}' ${describeExit(result)}.`);
-    }
+
+    checkSpawnResult(result, `Command hook '${cmd}'`);
   }
 }

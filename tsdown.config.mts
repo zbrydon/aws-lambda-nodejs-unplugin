@@ -23,9 +23,6 @@ export default defineConfig([
     attw: true,
   },
   {
-    // Bridge runner scripts - ESM only, spawned by Node at bundle time.
-    // All bare-specifier imports (peer deps and Node built-ins) must remain
-    // external so they resolve from the user's node_modules at runtime.
     failOnWarn: true,
     entry: [
       'src/bridges/esbuild.mts',
@@ -39,10 +36,5 @@ export default defineConfig([
     outDir: 'dist/bridges',
     format: ['esm'],
     dts: false,
-    inputOptions: {
-      // Anything that isn't a relative or absolute path is a node_modules
-      // import — leave it unresolved for the user's runtime to supply.
-      external: (id: string) => !id.startsWith('.') && !id.startsWith('/'),
-    },
   },
 ]);

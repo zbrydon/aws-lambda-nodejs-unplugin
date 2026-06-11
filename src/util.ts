@@ -3,91 +3,21 @@ import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { ValidationError } from './errors.ts';
 
-/**
- * Mirrors the V8 `NodeJS.CallSite` stack-frame API. Re-declared locally rather
- * than relying on the `@types/node` shape so the structural validation in
- * `isCallSite` stays self-contained.
- */
-export interface CallSite {
-  getThis(): unknown;
-  getTypeName(): string | null;
-  getFunctionName(): string | null;
-  getMethodName(): string;
-  getFileName(): string;
-  getLineNumber(): number;
-  getColumnNumber(): number;
-  getFunction(): (...args: unknown[]) => unknown;
-  getEvalOrigin(): string;
-  isNative(): boolean;
-  isToplevel(): boolean;
-  isEval(): boolean;
-  isConstructor(): boolean;
-}
-
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/**
- * Read and parse a JSON file, rethrowing malformed JSON as a ValidationError so
- * callers surface a consistent, file-attributed error rather than a raw
- * SyntaxError.
- */
 export const parseJsonFile = (filePath: string): unknown => {
   const raw = fs.readFileSync(filePath, 'utf8');
   try {
     return JSON.parse(raw);
   } catch (err) {
-    // JSON.parse only ever throws a SyntaxError, so reading `.message` is safe.
     throw new ValidationError(`Failed to parse ${filePath} as JSON: ${(err as Error).message}`);
   }
 };
 
-/** Validates that an item from Error.prepareStackTrace has the expected CallSite shape. */
-export const isCallSite = (item: unknown): item is CallSite => {
-  if (!isRecord(item)) {
-    return false;
-  }
-  // Route through unknown before casting to CallSite: Record<string,unknown> and
-  // CallSite share no structural overlap that TypeScript can verify, so a direct
-  // cast is rejected. The runtime checks above confirm the required methods exist.
-  const site = item as unknown as CallSite;
-  return typeof site.getFileName === 'function' && typeof site.getFunctionName === 'function';
-};
-
-/**
- * Get callsites from the V8 stack trace API.
- * https://github.com/sindresorhus/callsites
- */
-export const callsites = (): CallSite[] => {
-  // eslint-disable-next-line @typescript-eslint/unbound-method -- static property, not an instance method; `this` is irrelevant
-  const _prepareStackTrace = Error.prepareStackTrace;
-  Error.prepareStackTrace = (_, stack) => stack;
-  // With prepareStackTrace overridden, V8 sets Error.stack to the return value of
-  // the callback — a NodeJS.CallSite[] — rather than the usual formatted string.
-  // TypeScript still types Error.stack as string | undefined; annotate as unknown
-  // and validate the shape before returning. Restore in `finally` so the global
-  // override is never left in place even if capturing the stack throws.
-  let stack: unknown;
-  try {
-    stack = new Error().stack;
-  } finally {
-    Error.prepareStackTrace = _prepareStackTrace;
-  }
-  /* c8 ignore next 3 -- V8 always returns an array via prepareStackTrace; guard is defensive */
-  if (!Array.isArray(stack)) {
-    return [];
-  }
-  return stack.slice(1).filter(isCallSite);
-};
-
-/** Find a file by walking up parent directories. */
 export const findUp = (name: string, directory: string = process.cwd()): string | undefined =>
   findUpMultiple([name], directory)[0];
 
-/**
- * Find the nearest occurrence of any of the given names by walking up parent
- * directories. If multiple names exist at the same level, all are returned.
- */
 export const findUpMultiple = (names: string[], directory: string = process.cwd()): string[] => {
   const absoluteDirectory = path.resolve(directory);
 
@@ -111,7 +41,6 @@ export const findUpMultiple = (names: string[], directory: string = process.cwd(
   return findUpMultiple(names, path.dirname(absoluteDirectory));
 };
 
-/** Returns true when value is an object whose every value is a string — i.e. a dependency map. */
 const isDependencySection = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((v) => typeof v === 'string');
 
@@ -120,10 +49,6 @@ const tryGetModuleVersionFromPkg = (
   pkgJson: Record<string, unknown>,
   pkgPath: string,
 ): string | undefined => {
-  // Spread order: peerDependencies (lowest priority) → devDependencies →
-  // dependencies (highest priority). A pinned version in `dependencies` must
-  // not be overwritten by the broader range typically found in `peerDependencies`.
-  // Each section is validated before spreading; malformed / non-object sections are ignored.
   const dependencies: Record<string, string> = {
     ...(isDependencySection(pkgJson.peerDependencies) ? pkgJson.peerDependencies : {}),
     ...(isDependencySection(pkgJson.devDependencies) ? pkgJson.devDependencies : {}),
@@ -134,9 +59,7 @@ const tryGetModuleVersionFromPkg = (
   if (version === undefined) {
     return undefined;
   }
-  // An empty or blank version (e.g. a hand-edited package.json with `"pkg": ""`)
-  // would silently fall through to the require-based fallback and resolve
-  // whatever version happens to be installed.  Fail loudly instead.
+
   if (!version.trim()) {
     throw new ValidationError(
       `Found an empty version string for '${mod}' in ${pkgPath}. ` +
@@ -144,10 +67,23 @@ const tryGetModuleVersionFromPkg = (
     );
   }
 
-  // Resolve file: specifiers to absolute paths.
-  const filePart = version.match(/^file:(.+)$/)?.[1];
-  if (filePart !== undefined && !path.isAbsolute(filePart)) {
-    return `file:${path.join(path.dirname(pkgPath), filePart)}`;
+  const fileMatch = version.match(/^file:(.*)$/);
+  if (fileMatch) {
+    const filePart = (fileMatch[1] as string).trim();
+    if (!filePart) {
+      throw new ValidationError(
+        `Found a 'file:' dependency with an empty path for '${mod}' in ${pkgPath}. ` +
+          `Please point it at a valid path in your package.json.`,
+      );
+    }
+    if (!path.isAbsolute(filePart)) {
+      return `file:${path.join(path.dirname(pkgPath), filePart)}`;
+    }
+    return `file:${filePart}`;
+  }
+
+  if (/^(workspace|link|catalog):/.test(version)) {
+    return undefined;
   }
 
   return version;
@@ -155,15 +91,8 @@ const tryGetModuleVersionFromPkg = (
 
 const tryGetModuleVersionFromRequire = (mod: string, fromDir: string): string | undefined => {
   try {
-    // Anchor module resolution to `fromDir` (the directory containing the
-    // entry package.json), not process.cwd(). In a monorepo the two differ
-    // and anchoring to cwd() could resolve the wrong version or fail entirely
-    // for packages installed locally inside a sub-package.
-    // createRequire works in both CJS and ESM output; the plain require()
-    // global is unavailable in ESM bundles (dist/index.mjs).
     const _require = createRequire(path.join(fromDir, 'package.json'));
     const pkg: unknown = _require(`${mod}/package.json`);
-    // The required package.json may be any shape; validate before reading version.
     if (isRecord(pkg) && typeof pkg.version === 'string') {
       return pkg.version;
     }
@@ -173,10 +102,6 @@ const tryGetModuleVersionFromRequire = (mod: string, fromDir: string): string | 
   }
 };
 
-/**
- * Extract pinned versions for a list of modules from the caller's package.json,
- * falling back to `require('<mod>/package.json').version` for transitive deps.
- */
 export const extractDependencies = (pkgPath: string, modules: string[]): Record<string, string> => {
   const result: Record<string, string> = {};
   const parsed: unknown = parseJsonFile(pkgPath);
