@@ -79,7 +79,7 @@
     "@farmfe/core": "1.7.11",
     "@rspack/core": "2.0.6",
     "@skuba-lib/changesets-changelog": "1.0.1",
-    "@types/node": "24.12.4",
+    "@types/node": "24.13.2",
     "@vitest/coverage-v8": "4.1.8",
     "aws-cdk-lib": "2.257.0",
     "constructs": "10.6.0",
