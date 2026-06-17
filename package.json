@@ -83,7 +83,7 @@
     "@vitest/coverage-v8": "4.1.8",
     "aws-cdk-lib": "2.259.0",
     "constructs": "10.6.0",
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.1",
     "knip": "6.16.1",
     "oxfmt": "0.53.0",
     "oxlint": "1.69.0",
