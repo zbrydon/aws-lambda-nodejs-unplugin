@@ -1,6 +1,6 @@
 {
   "name": "aws-lambda-nodejs-unplugin",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "A drop-in nodejs first replacement for aws_lambda_nodejs.NodejsFunction enabling handler bundling with unplugin supported bundlers.",
   "keywords": [
     "aws-cdk",
