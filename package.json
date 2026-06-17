@@ -26,7 +26,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/zbrydon/aws-lambda-nodejs-unplugin.git"
+    "url": "git+https://github.com/zbrydon/aws-lambda-nodejs-unplugin.git"
   },
   "files": [
     "dist"
