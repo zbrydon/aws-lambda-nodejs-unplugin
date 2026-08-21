@@ -80,7 +80,7 @@
     "@rspack/core": "2.0.8",
     "@skuba-lib/changesets-changelog": "1.0.1",
     "@types/node": "24.13.2",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.11",
     "aws-cdk-lib": "2.259.0",
     "constructs": "10.6.0",
     "esbuild": "0.28.1",
@@ -95,7 +95,7 @@
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
     "vite": "8.0.16",
-    "vitest": "4.1.8",
+    "vitest": "4.1.11",
     "webpack": "5.107.2"
   },
   "peerDependencies": {
