@@ -92,7 +92,7 @@
     "rolldown": "^1.0.2",
     "rollup": "4.62.0",
     "tsconfig-seek": "2.0.0",
-    "tsdown": "0.22.2",
+    "tsdown": "0.23.0",
     "typescript": "6.0.3",
     "vite": "8.0.16",
     "vitest": "4.1.8",
